@@ -256,6 +256,11 @@ def send_telegram_message(text, reply_markup=None, target_chat_id=None):
         if not sent:
             print(f"❌ Telegram Gönderim Hatası [{cid}]: {last_error}")
 
+    if success_count > 0:
+        return True, f"{success_count} alıcıya başarıyla gönderildi."
+    else:
+        return False, last_error or "Telegram gönderim hatası."
+
 def get_fear_and_greed_index():
     try:
         url = "https://api.alternative.me/fng/"
@@ -1433,7 +1438,8 @@ def background_bot_loop():
                                             f"📈 [Canlı TradingView Grafiği ve Formasyonu İncele]({chart_link})\n"
                                             f"✨ *VIP Özel Analiz ve Sinyal Kanalı*"
                                         )
-                                        ok_sc, msg_sc = send_telegram_message(signal_msg)
+                                        res_sc = send_telegram_message(signal_msg)
+                                        ok_sc = res_sc[0] if isinstance(res_sc, tuple) else bool(res_sc)
                                         if ok_sc:
                                             signal_broadcast_cooldowns[clean_display_sym] = now
                                             print(f"📡 VIP Trader Sinyal ve Grafik Yayınlandı: {clean_display_sym} ({side})")
