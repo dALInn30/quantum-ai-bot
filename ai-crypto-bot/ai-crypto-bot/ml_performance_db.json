@@ -1,0 +1,13 @@
+{
+  "pattern_weights": {
+    "\u0130kili Dip (W-Formasyonu)": 1.17,
+    "Bo\u011fa Bayra\u011f\u0131 (Bull Flag)": 1.1,
+    "\u0130kili Tepe (M-Formasyonu)": 1.1,
+    "Kanal \u0130\u00e7i Ak\u00fcm\u00fclasyon": 0.89
+  },
+  "rsi_threshold_long": 36,
+  "rsi_threshold_short": 66,
+  "total_learnings": 4,
+  "win_streak": 1,
+  "loss_streak": 0
+}

@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Yapay Zeka Destekli Kripto Alım Satım & Analiz Botu</title>
+  <meta name="description" content="Gelişmiş Yapay Zeka (AI) destekli kripto teknik analiz, tahmin ve canlı alım-satım işlem önerileri platformu.">
+  <link rel="stylesheet" href="styles.css">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Header Navbar -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="logo-badge">
+          <i class="fa-solid fa-brain"></i>
+        </div>
+        <div class="brand-title">
+          <h1>QUANTUM AI CRYPTO BOT</h1>
+          <span>Öngörüsel Yapay Zeka & Sinyal Motoru</span>
+        </div>
+      </div>
+
+      <div class="header-status-bar">
+        <div class="status-pill">
+          <div class="pulse-dot"></div>
+          <span>Canlı Piyasa Entegrasyonu</span>
+        </div>
+
+        <div class="fear-greed-badge">
+          <i class="fa-solid fa-fire"></i>
+          <span>Korku & Açgözlülük: <strong id="fearGreedVal">74 (Açgözlü)</strong></span>
+        </div>
+
+        <button class="telegram-btn" id="openTelegramModal" title="Telegram 7/24 Bildirim Ayarları">
+          <i class="fa-brands fa-telegram"></i>
+          <span>Telegram</span>
+        </button>
+
+        <div class="auto-pilot-toggle" title="Bot belirlenen stratejiye göre sanal portföyde otomatik işlem açar">
+          <label class="switch">
+            <input type="checkbox" id="autoPilotCheck">
+            <span class="slider"></span>
+          </label>
+          <span>Otomatik Pilot Mode</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Live Ticker Bar -->
+    <div class="ticker-bar" id="tickerBar">
+      <!-- Ticker Items Generated Dynamically -->
+    </div>
+
+    <!-- Main Workspace Grid -->
+    <main class="main-content">
+      
+      <!-- Left Column: Chart & AI Terminal -->
+      <section class="chart-section">
+        
+        <!-- Main Price Chart Panel -->
+        <div class="card-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <i class="fa-chart-line fa-lg"></i>
+              <span id="activePairTitle">BTC/USDT - Canlı Grafik & YZ Tahmin Eğrisi</span>
+            </div>
+            
+            <div class="timeframe-selector">
+              <button class="tf-btn" data-tf="1m">1m</button>
+              <button class="tf-btn active" data-tf="15m">15m</button>
+              <button class="tf-btn" data-tf="1h">1h</button>
+              <button class="tf-btn" data-tf="4h">4h</button>
+              <button class="tf-btn" data-tf="1d">1d</button>
+            </div>
+          </div>
+
+          <div class="chart-container">
+            <canvas id="cryptoChart"></canvas>
+          </div>
+        </div>
+
+        <!-- AI Reasoning & Analysis Panel -->
+        <div class="card-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <i class="fa-solid fa-microchip"></i>
+              <span>Yapay Zeka Düşünce & Mantık Terminali (AI Reasoning Engine)</span>
+            </div>
+            <button class="btn-primary" id="btnRunAnalysis">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>Analiz Et & Fikir Yürüt</span>
+            </button>
+          </div>
+
+          <div class="ai-terminal" id="aiTerminal">
+            <div class="terminal-header">
+              <span><i class="fa-solid fa-terminal"></i> QUAN-AI REASONING CONSOLE v3.6</span>
+              <span id="terminalTime">CANLI BEKLEMEDE</span>
+            </div>
+            <div id="terminalSteps">
+              <div class="reasoning-step">
+                <span class="step-tag">[SİSTEM]</span> Yapay Zeka analiz motoru hazır. Seçili kripto çifti için derinlemesine teknik göstergeler, likidite seviyeleri ve sosyal medya duygusu taranmaya hazır.
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Sidebar: AI Trade Recommendation & Virtual Portfolio -->
+      <aside class="sidebar-section">
+        
+        <!-- AI Trade Signal Recommendation Card -->
+        <div class="card-panel signal-card">
+          <div class="panel-header" style="border:none; margin-bottom: 8px;">
+            <div class="panel-title">
+              <i class="fa-solid fa-bolt" style="color: var(--color-accent-cyan);"></i>
+              <span>Yapay Zeka İşlem Önerisi</span>
+            </div>
+            <span style="font-size: 11px; color: var(--text-muted);" id="signalTime">Henüz Güncellenmedi</span>
+          </div>
+
+          <!-- Position Conflict & Pattern Invalidation Alert Banner -->
+          <div id="positionStatusBanner" style="display: none;"></div>
+
+          <div class="signal-header-badge">
+            <div class="signal-type-tag bullish" id="signalTypeBadge">GÜÇLÜ AL</div>
+            <div class="confidence-score">
+              <div class="score-num" id="signalConfidence">%89</div>
+              <div class="score-label">YZ Güven Oranı</div>
+            </div>
+          </div>
+
+          <div class="signal-metrics-grid">
+            <div class="metric-box">
+              <label>Kaldıraç / Strateji</label>
+              <span id="signalLeverage">3x - 5x LONG</span>
+            </div>
+            <div class="metric-box">
+              <label>Risk / Ödül Oranı</label>
+              <span id="signalRR">1 : 2.8</span>
+            </div>
+            <div class="metric-box" style="border-color: rgba(0,230,118,0.3)">
+              <label>Ana Destek (Support)</label>
+              <span id="signalSupport" style="color: var(--color-bullish);">$0.00</span>
+            </div>
+            <div class="metric-box" style="border-color: rgba(255,23,68,0.3)">
+              <label>Ana Direnç (Resistance)</label>
+              <span id="signalResistance" style="color: var(--color-bearish);">$0.00</span>
+            </div>
+            <div class="metric-box" style="border-color: rgba(121,40,202,0.4); grid-column: span 2;">
+              <label>Formasyon & Geçmiş Eşleşmesi</label>
+              <span id="signalPattern" style="color: var(--color-accent-cyan); font-size: 12px; font-weight: 600;">İkili Dip (W-Formasyonu) — %89 Benzerlik</span>
+            </div>
+          </div>
+
+          <!-- Target Profit Strategy Selector -->
+          <div class="strategy-selector-box" style="margin-bottom: 12px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid var(--border-color);">
+            <label style="font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 6px; font-weight: 600;">🎯 Hedef Kâr Marjı Stratejisi:</label>
+            <div class="strategy-options" style="display: flex; gap: 6px;">
+              <button class="strategy-btn active" data-strategy="daytrade" title="Gün İçi İdeal Kâr Hedefi: %1.8 - %5.5">⚡ Günlük (%1.8-%5.5)</button>
+              <button class="strategy-btn" data-strategy="swing" title="Geniş Salınım Kâr Hedefi: %3.5 - %12.0">🔥 Swing (%3.5-%12)</button>
+              <button class="strategy-btn" data-strategy="scalp" title="Mikro Scalp Kâr Hedefi: %1.0 - %3.0">🎯 Scalp (%1.0-%3)</button>
+            </div>
+          </div>
+
+          <!-- Price Targets -->
+          <div class="price-targets-list">
+            <div class="target-row">
+              <span class="target-label">Giriş Fiyatı:</span>
+              <span id="signalEntry">$0.00</span>
+            </div>
+            <div class="target-row">
+              <span class="target-label">Kar Al 1 (TP1):</span>
+              <div style="display: flex; align-items: center;">
+                <span class="tp-value" id="signalTP1">$0.00</span>
+                <span class="pct-badge tp" id="signalTP1Pct">+3.5%</span>
+              </div>
+            </div>
+            <div class="target-row">
+              <span class="target-label">Kar Al 2 (TP2):</span>
+              <div style="display: flex; align-items: center;">
+                <span class="tp-value" id="signalTP2">$0.00</span>
+                <span class="pct-badge tp" id="signalTP2Pct">+7.0%</span>
+              </div>
+            </div>
+            <div class="target-row">
+              <span class="target-label">Kar Al 3 (TP3):</span>
+              <div style="display: flex; align-items: center;">
+                <span class="tp-value" id="signalTP3">$0.00</span>
+                <span class="pct-badge tp" id="signalTP3Pct">+12.0%</span>
+              </div>
+            </div>
+            <div class="target-row">
+              <span class="target-label">Stop-Loss (SL):</span>
+              <div style="display: flex; align-items: center;">
+                <span class="sl-value" id="signalSL">$0.00</span>
+                <span class="pct-badge sl" id="signalSLPct">-2.0%</span>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn-execute" id="btnExecuteTrade">
+            <i class="fa-solid fa-play"></i>
+            <span>Sanal İşlem Aç ($1,000 USDT)</span>
+          </button>
+        </div>
+
+        <!-- Virtual Portfolio & Position Tracking -->
+        <div class="card-panel portfolio-card">
+          <div class="panel-header">
+            <div class="panel-title">
+              <i class="fa-solid fa-wallet"></i>
+              <span>Sanal Portföy & İşlem Takibi</span>
+            </div>
+            <span style="font-size: 11px; color: var(--color-accent-cyan);" id="winRateVal">Kazanma Oranı: %100</span>
+          </div>
+
+          <div class="wallet-stats">
+            <div class="wallet-box">
+              <div class="wallet-title">Kullanılabilir USDT</div>
+              <div class="wallet-val" id="portBalance">$10,000.00</div>
+            </div>
+            <div class="wallet-box">
+              <div class="wallet-title">Toplam Varlık (Equity)</div>
+              <div class="wallet-val" id="portEquity">$10,000.00</div>
+            </div>
+          </div>
+
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px;">
+            Açık Pozisyonlar (<span id="posCount">0</span>)
+          </div>
+
+          <div style="max-height: 180px; overflow-y: auto; margin-bottom: 12px;">
+            <table class="positions-table">
+              <thead>
+                <tr>
+                  <th>Varlık</th>
+                  <th>Yön</th>
+                  <th>Giriş</th>
+                  <th>Anlık Fiyat</th>
+                  <th>PnL ($)</th>
+                  <th>İşlem</th>
+                </tr>
+              </thead>
+              <tbody id="positionsTbody">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 16px;">
+                    Henüz açık pozisyon bulunmuyor.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Closed Trade History Table Section -->
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-top: 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 12px;">
+            <span><i class="fa-solid fa-clock-rotate-left" style="color: var(--color-accent-cyan);"></i> Kapanan İşlem Geçmişi (<span id="histCount">0</span>)</span>
+            <span style="font-size: 10px; color: var(--color-accent-cyan);" id="histWinRate">Başarı: %100</span>
+          </div>
+
+          <div style="max-height: 220px; overflow-y: auto;">
+            <table class="positions-table">
+              <thead>
+                <tr>
+                  <th>Varlık</th>
+                  <th>Yön</th>
+                  <th>Giriş / Kapanış</th>
+                  <th>Net PnL ($ / %)</th>
+                  <th>Kapanış Gerekçesi</th>
+                  <th>Zaman</th>
+                </tr>
+              </thead>
+              <tbody id="historyTbody">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 16px;">
+                    Henüz kapanmış geçmiş işlem bulunmuyor.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </aside>
+    </main>
+
+    <!-- Telegram Modal -->
+    <div class="modal-backdrop" id="telegramModal">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 style="font-size: 16px; font-weight: 700;"><i class="fa-brands fa-telegram" style="color: #0088cc;"></i> Telegram 7/24 Live Signal Settings</h3>
+          <button class="modal-close" id="closeTelegramModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div style="background: rgba(0, 136, 204, 0.1); border: 1px solid rgba(0, 136, 204, 0.3); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px;">
+            <strong style="color: #0088cc; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+              <i class="fa-solid fa-bullhorn"></i> Telegram Kanalı ve Çoklu Abone Kurulumu:
+            </strong>
+            <ul style="margin: 0; padding-left: 18px; color: var(--text-muted); line-height: 1.6;">
+              <li><strong>📢 Telegram Kanalına Yayın (ÖNERİLEN):</strong> Telegram'da bir kanal oluşturun. Oluşturduğunuz botu kanala <strong>Yönetici (Admin)</strong> ekleyin. Kanal ID'sini (Örn: <code>-1001234567890</code> veya <code>@kanal_adiniz</code>) Chat ID alanına girin. Kanaldaki <strong>HERKES</strong> sinyalleri canlı alır!</li>
+              <li><strong>👥 Çoklu Özel Kullanıcı:</strong> Bota Telegram'dan <code>/start</code> mesajı gönderen TÜM kullanıcılar abone listesine otomatik kaydolur. Virgülle ayırarak çoklu Chat ID de girebilirsiniz.</li>
+            </ul>
+          </div>
+
+          <div class="form-group">
+            <label>Telegram Bot Token (BotFather'dan alınan)</label>
+            <input type="text" id="tgBotToken" placeholder="Örn: 8650281014:AAEHb7sJFQa2PjR3OXBex2_PLzCQe2kL5Bc">
+          </div>
+
+          <div class="form-group">
+            <label>Telegram Chat / Kanal ID (Virgülle çoklu ID veya -100... Kanal ID)</label>
+            <input type="text" id="tgChatId" placeholder="Örn: 8114120192, -1001234567890, @kripto_sinyallerim">
+          </div>
+
+          <div class="auto-pilot-toggle" style="margin-top: 14px; width: fit-content;">
+            <label class="switch">
+              <input type="checkbox" id="tgEnabledCheck">
+              <span class="slider"></span>
+            </label>
+            <span>Telegram 7/24 Sinyal & Bildirimlerini Etkinleştir</span>
+          </div>
+        </div>
+        <div class="modal-footer" style="margin-top: 20px; display: flex; gap: 10px; flex-direction: column;">
+          <button class="btn-primary" id="saveTelegramSettings" style="width: 100%; justify-content: center;">
+            <i class="fa-solid fa-floppy-disk"></i>
+            <span>Ayarları Kaydet</span>
+          </button>
+          <button class="btn-secondary" id="testTelegramBtn" style="width: 100%; justify-content: center; background: rgba(0, 136, 204, 0.2); border: 1px solid rgba(0, 136, 204, 0.5); color: #38bdf8;">
+            <i class="fa-paper-plane fa-solid"></i>
+            <span>📱 Test Sinyali Gönder</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>QUANTUM AI CRYPTO TRADING BOT © 2026 | Yapay zeka tahminleri yatırım tavsiyesi değildir. Sanal işlem ortamıdır.</span>
+    </footer>
+
+  </div>
+
+  <!-- App Controller JavaScript (ES Module) -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
