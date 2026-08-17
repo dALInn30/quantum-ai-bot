@@ -881,18 +881,14 @@ def check_hard_eligibility(long_score, short_score, current_price, supp, resis, 
     risk_dist = abs(current_price - sl)
     reward_dist = abs(tp1 - current_price)
     rr_ratio = (reward_dist / risk_dist) if risk_dist > 0 else 0.0
-    if rr_ratio < 1.45:
-        return False, f"POOR_RISK_REWARD (Risk/Ödül Oranı Yetersiz: 1:{rr_ratio:.2f} < 1:1.50)"
+    if rr_ratio < 1.25:
+        return False, f"POOR_RISK_REWARD (Risk/Ödül Oranı Yetersiz: 1:{rr_ratio:.2f} < 1:1.25)"
 
     if long_score > short_score:
-        if resis > current_price and resis < tp1:
-            return False, "TARGET_BLOCKED (TP1 Önünde Güçlü Direnç Engeli Var)"
-        if supp > 0 and ((current_price - supp) / current_price) > 0.035:
+        if supp > 0 and ((current_price - supp) / current_price) > 0.04:
             return False, "POOR_LOCATION (Giriş Seviyesi Desteğe Fazla Uzak)"
     else:
-        if supp < current_price and supp > tp1:
-            return False, "TARGET_BLOCKED (TP1 Önünde Güçlü Destek Engeli Var)"
-        if resis > 0 and ((resis - current_price) / current_price) > 0.035:
+        if resis > 0 and ((resis - current_price) / current_price) > 0.04:
             return False, "POOR_LOCATION (Giriş Seviyesi Dirence Fazla Uzak)"
 
     return True, "ELIGIBLE"
@@ -915,7 +911,12 @@ def calc_tp_sl(price, side, supp, resis, atr=None, adx=22.0):
             sl = max_allowed_sl
 
         risk_dist = price - sl
-        tp1 = round(price + risk_dist * 1.3, decimals)
+        raw_tp1 = price + risk_dist * 1.55
+        if resis > price and resis < raw_tp1 and (resis - price) >= risk_dist * 1.3:
+            tp1 = round(resis * 0.998, decimals)
+        else:
+            tp1 = round(raw_tp1, decimals)
+
         tp2 = round(max(resis * 0.998 if resis > price else price + risk_dist * 2.2, price + risk_dist * 2.0), decimals)
         tp3 = round(price + risk_dist * tp3_mult, decimals)
 
@@ -931,7 +932,12 @@ def calc_tp_sl(price, side, supp, resis, atr=None, adx=22.0):
             sl = min_allowed_sl
 
         risk_dist = sl - price
-        tp1 = round(price - risk_dist * 1.3, decimals)
+        raw_tp1 = price - risk_dist * 1.55
+        if supp < price and supp > raw_tp1 and (price - supp) >= risk_dist * 1.3:
+            tp1 = round(supp * 1.002, decimals)
+        else:
+            tp1 = round(raw_tp1, decimals)
+
         tp2 = round(min(supp * 1.002 if supp < price else price - risk_dist * 2.2, price - risk_dist * 2.0), decimals)
         tp3 = round(price - risk_dist * tp3_mult, decimals)
 
@@ -1365,9 +1371,9 @@ def background_bot_loop():
                                 final_long_score = min(99, max(0, long_score + ob_info["obModifier"] + fut_info["futModifier"]))
                                 final_short_score = min(99, max(0, short_score - ob_info["obModifier"] - fut_info["futModifier"]))
 
-                                # Hafta Sonu Düşük Hacim Filtresi (Cumartesi/Pazar Eşik 92, Hafta İçi 88)
+                                # Hafta Sonu Düşük Hacim Filtresi (Cumartesi/Pazar Eşik 86, Hafta İçi 80)
                                 is_weekend = time.strftime("%w") in ["0", "6"]
-                                min_required_score = 92 if is_weekend else 88
+                                min_required_score = 86 if is_weekend else 80
 
                                 if final_long_score >= min_required_score:
                                     should_open = True
@@ -1493,7 +1499,7 @@ def background_bot_loop():
 # Web Server & REST API Handler
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/api/state":
+        if self.path in ["/api/state", "/health", "/"]:
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -1760,15 +1766,20 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
 
 def keep_alive_loop():
-    url = os.environ.get("RENDER_EXTERNAL_URL", "https://quantum-ai-bot.onrender.com/")
+    url_ext = os.environ.get("RENDER_EXTERNAL_URL")
+    urls_to_ping = [f"http://127.0.0.1:{PORT}/health"]
+    if url_ext:
+        urls_to_ping.append(url_ext.rstrip('/') + "/health")
+    
     while True:
-        time.sleep(240) # Every 4 minutes
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) KeepAlive'})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+        time.sleep(180) # Every 3 minutes
+        for ping_url in urls_to_ping:
+            try:
+                req = urllib.request.Request(ping_url, headers={'User-Agent': 'Mozilla/5.0 KeepAlive'})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    pass
+            except Exception:
                 pass
-        except Exception as e:
-            pass
 
 if __name__ == "__main__":
     load_db()
