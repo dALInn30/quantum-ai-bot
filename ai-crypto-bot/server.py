@@ -59,8 +59,11 @@ telegram_config = {
     "bot_token": "",
     "chat_id": "",
     "chat_ids": [],
-    "enabled": False
+    "enabled": True
 }
+
+signal_broadcast_cooldowns = {}
+symbol_cooldowns = {}
 
 def get_telegram_chat_ids():
     chat_ids = []
