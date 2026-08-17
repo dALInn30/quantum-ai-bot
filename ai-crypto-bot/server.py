@@ -1499,7 +1499,15 @@ def background_bot_loop():
 # Web Server & REST API Handler
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ["/api/state", "/health", "/"]:
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode('utf-8'))
+            return
+
+        if self.path == "/api/state":
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -1515,6 +1523,9 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             }
             self.wfile.write(json.dumps(resp_data).encode('utf-8'))
             return
+
+        if self.path == "/":
+            self.path = "/index.html"
 
         if self.path == "/api/backtest":
             res = run_backtest_simulation()
