@@ -61,9 +61,15 @@ telegram_config = {
     "chat_ids": [],
     "enabled": True
 }
-
 signal_broadcast_cooldowns = {}
 symbol_cooldowns = {}
+global_last_signal_time = 0
+
+def is_same_symbol(sym1, sym2):
+    if not sym1 or not sym2:
+        return False
+    return str(sym1).replace("/", "").strip().upper() == str(sym2).replace("/", "").strip().upper()
+
 
 def get_telegram_chat_ids():
     chat_ids = []
@@ -1230,7 +1236,7 @@ def background_bot_loop():
                 
                 for sym in state["symbols"]:
                     clean_display_sym = sym.replace("USDT", "/USDT")
-                    existing_pos = next((p for p in state["positions"] if p["symbol"] == clean_display_sym), None)
+                    existing_pos = next((p for p in state["positions"] if is_same_symbol(p["symbol"], clean_display_sym)), None)
 
                     try:
                         # 🌐 Fetch 90 Days of 4-hour Candles (540 x 4h = 90 Days) + 15m Micro Timing Candles
@@ -1341,7 +1347,7 @@ def background_bot_loop():
                                         hist_entry["closeTime"] = time.strftime("%H:%M:%S")
                                         state["history"].insert(0, hist_entry)
 
-                                        state["positions"] = [p for p in state["positions"] if p["symbol"] != clean_display_sym]
+                                        state["positions"] = [p for p in state["positions"] if not is_same_symbol(p["symbol"], clean_display_sym)]
                                         save_db()
                                         update_self_learning_engine(hist_entry)
 
@@ -1404,9 +1410,14 @@ def background_bot_loop():
                                         should_open = False
                                         continue
 
-                                    # 📢 Telegram Sinyal Yayını (Sadece çakışan açık pozisyon yoksa)
+                                    # 📢 Telegram Sinyal Yayını (Sadece açık pozisyon yoksa ve cooldown dolmuşsa)
+                                    has_open_pos = any(is_same_symbol(p["symbol"], clean_display_sym) for p in state.get("positions", []))
+                                    is_already_open = (existing_pos is not None) or has_open_pos
                                     last_bc_time = signal_broadcast_cooldowns.get(clean_display_sym, 0)
-                                    if not already_open and (now - last_bc_time) > 1800:
+                                    SYMBOL_COOLDOWN_SEC = 3600 # 1 saat sembol bekleme süresi
+                                    GLOBAL_COOLDOWN_SEC = 600  # 10 dakika global sinyal spam koruması
+
+                                    if not is_already_open and (now - last_bc_time) > SYMBOL_COOLDOWN_SEC and (now - global_last_signal_time) > GLOBAL_COOLDOWN_SEC:
                                         reason_trend = f"EMA200 (`{format_price(ema200)}`) üzerinde Güçlü Boğa Trendi" if side == "LONG" else f"EMA200 (`{format_price(ema200)}`) altında Düşen Ayı Trendi"
                                         reason_macd = "MACD Histogramı pozitif ivmeyle boğa kesişimi verdi" if side == "LONG" else "MACD Histogramı negatif ivmeyle ayı kesişimi verdi"
                                         reason_rsi = f"RSI (`{rsi:.1f}`) aşırı satım dip seviyesinden tepki alımı" if side == "LONG" else f"RSI (`{rsi:.1f}`) tepe seviyesinden kâr satışı tepkisi"
@@ -1445,6 +1456,7 @@ def background_bot_loop():
                                         ok_sc = res_sc[0] if isinstance(res_sc, tuple) else bool(res_sc)
                                         if ok_sc:
                                             signal_broadcast_cooldowns[clean_display_sym] = now
+                                            global_last_signal_time = now
                                             print(f"📡 VIP Trader Sinyal ve Grafik Yayınlandı: {clean_display_sym} ({side})")
 
                                     # 🤖 Otomatik Pilot İşlem Açma Motoru (Çakışan pozisyonda ve Devre Kesici döneminde işlem açılmaz)
@@ -1452,7 +1464,7 @@ def background_bot_loop():
                                     circuit_active = (time.time() < cb_until)
                                     last_tr_time = symbol_cooldowns.get(clean_display_sym, 0)
 
-                                    if state["auto_pilot"] and not already_open and not circuit_active and state["balance"] >= 300 and (now - last_tr_time) >= 900:
+                                    if state["auto_pilot"] and not is_already_open and not circuit_active and state["balance"] >= 300 and (now - last_tr_time) >= 900:
                                         amount = round(min(state["balance"], suggested_pos_size), 2)
                                         size = round(amount / current_price, 4)
 
@@ -1645,7 +1657,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             entry_price = float(signal.get("entryPrice", 0))
 
             # 🛡️ 1. Mevcut Pozisyon Kontrolü
-            existing_pos = next((p for p in state["positions"] if p["symbol"] == target_sym), None)
+            existing_pos = next((p for p in state["positions"] if is_same_symbol(p["symbol"], target_sym)), None)
             if existing_pos:
                 if existing_pos["side"] == target_side:
                     self.send_response(200)
@@ -1665,7 +1677,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                     hist_entry["closeTime"] = time.strftime("%H:%M:%S")
                     state["history"].insert(0, hist_entry)
 
-                    state["positions"] = [p for p in state["positions"] if p["symbol"] != target_sym]
+                    state["positions"] = [p for p in state["positions"] if not is_same_symbol(p["symbol"], target_sym)]
 
                     msg_close = (
                         f"🔄 *POZİSYON REVİZE EDİLDİ (Ters Yön)*\n"
