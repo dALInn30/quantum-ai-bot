@@ -1028,6 +1028,7 @@ def run_backtest_simulation():
 
 # 24/7 Background Trading & Self-Learning Auto-Pilot Loop
 def background_bot_loop():
+    global global_last_signal_time, signal_broadcast_cooldowns, symbol_cooldowns, telegram_config, state
     print("🧠 24/7 Quantum AI Self-Learning Engine Running...")
     last_auto_scan = 0
     last_audit_report = 0
