@@ -1178,20 +1178,34 @@ def background_bot_loop():
 
                 if sl_updated and pos["sl"] != old_sl:
                     save_db()
-                    sl_msg = (
-                        f"🚨 *STOP LOSS LEVEL REVISED / GÜNCELLENDİ*\n"
-                        f"---------------------------------\n"
-                        f"🎯 *Varlık:* *{pos['symbol']}* ({pos['side']})\n"
-                        f"📍 *Giriş Fiyatı:* `{format_price(pos['entryPrice'])}` | Anlık Fiyat: `{format_price(mark_price)}`\n"
-                        f"🛑 *Eski Stop (SL):* `{format_price(old_sl)}` (Revize Edildi)\n"
-                        f"⚡ *YENİ STOP LOSS (SL):* `{format_price(pos['sl'])}` 👈\n"
-                        f"📊 *Güncelleme Sebebi:* *{update_tag}*\n"
-                        f"📈 *Güncel Kâr/Zarar:* *${pos['pnl']:+.2f} ({pos['pnlPercent']:+.2f}%)*\n"
-                        f"---------------------------------\n"
-                        f"⚠️ *Lütfen harici borsadaki Stop Loss seviyenizi `{format_price(pos['sl'])}` olarak revize ediniz.*"
-                    )
-                    send_telegram_message(sl_msg)
-                    print(f"📡 Telegram Stop Güncelleme Bildirimi Gönderildi: {pos['symbol']} -> SL: {pos['sl']}")
+
+                    # 🛡️ Anti-Spam Control for Telegram SL Revision Notifications
+                    last_notify_ts = pos.get("last_sl_notify_ts", 0)
+                    last_notify_tag = pos.get("last_sl_notify_tag", "")
+                    sl_change_pct = abs(pos["sl"] - old_sl) / old_sl if old_sl > 0 else 0
+
+                    is_new_stage = (update_tag != last_notify_tag)
+                    is_significant_change = (sl_change_pct >= 0.005 and (now_sec - last_notify_ts) >= 900)
+
+                    if is_new_stage or is_significant_change:
+                        pos["last_sl_notify_ts"] = now_sec
+                        pos["last_sl_notify_tag"] = update_tag
+                        save_db()
+
+                        sl_msg = (
+                            f"🚨 *STOP LOSS LEVEL REVISED / GÜNCELLENDİ*\n"
+                            f"---------------------------------\n"
+                            f"🎯 *Varlık:* *{pos['symbol']}* ({pos['side']})\n"
+                            f"📍 *Giriş Fiyatı:* `{format_price(pos['entryPrice'])}` | Anlık Fiyat: `{format_price(mark_price)}`\n"
+                            f"🛑 *Eski Stop (SL):* `{format_price(old_sl)}` (Revize Edildi)\n"
+                            f"⚡ *YENİ STOP LOSS (SL):* `{format_price(pos['sl'])}` 👈\n"
+                            f"📊 *Güncelleme Sebebi:* *{update_tag}*\n"
+                            f"📈 *Güncel Kâr/Zarar:* *${pos['pnl']:+.2f} ({pos['pnlPercent']:+.2f}%)*\n"
+                            f"---------------------------------\n"
+                            f"⚠️ *Lütfen harici borsadaki Stop Loss seviyenizi `{format_price(pos['sl'])}` olarak revize ediniz.*"
+                        )
+                        send_telegram_message(sl_msg)
+                        print(f"📡 Telegram Stop Güncelleme Bildirimi Gönderildi: {pos['symbol']} -> SL: {pos['sl']}")
 
                 open_ts = pos.get("openTimeSec", now_sec)
                 holding_hours = (now_sec - open_ts) / 3600.0
