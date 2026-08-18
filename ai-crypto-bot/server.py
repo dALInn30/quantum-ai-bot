@@ -1442,61 +1442,17 @@ def background_bot_loop():
                                         should_open = False
                                         continue
 
-                                    # 📢 Telegram Sinyal Yayını (Sadece açık pozisyon yoksa ve cooldown dolmuşsa)
+                                    # 🤖 Unified VIP Signal Broadcast & Auto-Pilot Trade Engine (100% Synced)
                                     has_open_pos = any(is_same_symbol(p["symbol"], clean_display_sym) for p in state.get("positions", []))
                                     is_already_open = (existing_pos is not None) or has_open_pos
                                     last_bc_time = signal_broadcast_cooldowns.get(clean_display_sym, 0)
+                                    cb_until = state.get("circuit_breaker_until", 0)
+                                    circuit_active = (time.time() < cb_until)
+                                    
                                     SYMBOL_COOLDOWN_SEC = 3600 # 1 saat sembol bekleme süresi
                                     GLOBAL_COOLDOWN_SEC = 600  # 10 dakika global sinyal spam koruması
 
-                                    if not is_already_open and (now - last_bc_time) > SYMBOL_COOLDOWN_SEC and (now - global_last_signal_time) > GLOBAL_COOLDOWN_SEC:
-                                        reason_trend = f"EMA200 (`{format_price(ema200)}`) üzerinde Güçlü Boğa Trendi" if side == "LONG" else f"EMA200 (`{format_price(ema200)}`) altında Düşen Ayı Trendi"
-                                        reason_macd = "MACD Histogramı pozitif ivmeyle boğa kesişimi verdi" if side == "LONG" else "MACD Histogramı negatif ivmeyle ayı kesişimi verdi"
-                                        reason_rsi = f"RSI (`{rsi:.1f}`) aşırı satım dip seviyesinden tepki alımı" if side == "LONG" else f"RSI (`{rsi:.1f}`) tepe seviyesinden kâr satışı tepkisi"
-                                        reason_smc = f"Boğa Order Block (`{format_price(supp)}`) Kurumsal Alım Bölgesi" if side == "LONG" else f"Ayı Order Block (`{format_price(resis)}`) Kurumsal Satış Bölgesi"
-
-                                        clean_pair = clean_display_sym.replace('/', '')
-                                        chart_link = f"https://www.tradingview.com/chart/?symbol=BINANCE:{clean_pair}"
-
-                                        signal_msg = (
-                                            f"💎 *VIP TRADER ÖZEL SİNYAL & ANALİZ* (%{confidence} Başarı Olasılığı)\n"
-                                            f"---------------------------------\n"
-                                            f"🎯 *Varlık:* *{clean_display_sym}* ({side} {'📈' if side == 'LONG' else '📉'})\n"
-                                            f"📍 *Giriş Seviyesi:* `{format_price(current_price)}` \n"
-                                            f"🎯 *Kar Al 1 (TP1):* `{format_price(tp1)}` (Kademeli Kâr - %50 Kapat)\n"
-                                            f"🎯 *Kar Al 2 (TP2):* `{format_price(tp2)}` (Ana Hedef)\n"
-                                            f"🚀 *Kar Al 3 (TP3):* `{format_price(tp3)}` (Trend Uzaması)\n"
-                                            f"🛡️ *DCA Kademeli Alım #1:* `{format_price(so1)}` (-%2 Kademesi)\n"
-                                            f"🛡️ *DCA Kademeli Alım #2:* `{format_price(so2)}` (-%4 Kademesi)\n"
-                                            f"🛑 *Stop Loss (SL):* `{format_price(sl)}` (Volatilite Korumalı)\n"
-                                            f"---------------------------------\n"
-                                            f"📐 *QUANTFURY UYGULAMA EMİR BİLGİSİ:*\n"
-                                            f"└ 💵 *Önerilen Pozisyon Büyüklüğü:* `${suggested_pos_size:,.2f}` (ATR Volatilite Ayarlı)\n"
-                                            f"└ ⚖️ *Önerilen Kaldıraç:* `1x - 5x` (Maksimum Risk: %2.0)\n"
-                                            f"---------------------------------\n"
-                                            f"📊 *KURUMSAL TEKNİK & TEMEL ANALİZ GEREKÇESİ:*\n"
-                                            f"└ 📈 *Makro Trend:* {reason_trend}\n"
-                                            f"└ 🌊 *Momentum:* {reason_macd}\n"
-                                            f"└ 🎯 *RSI & Seviye:* {reason_rsi}\n"
-                                            f"└ 🐋 *Smart Money (SMC):* {reason_smc}\n"
-                                            f"└ 🔍 *Formasyon Yapısı:* *{pattern_name}*\n"
-                                            f"---------------------------------\n"
-                                            f"📈 [Canlı TradingView Grafiği ve Formasyonu İncele]({chart_link})\n"
-                                            f"✨ *VIP Özel Analiz ve Sinyal Kanalı*"
-                                        )
-                                        res_sc = send_telegram_message(signal_msg)
-                                        ok_sc = res_sc[0] if isinstance(res_sc, tuple) else bool(res_sc)
-                                        if ok_sc:
-                                            signal_broadcast_cooldowns[clean_display_sym] = now
-                                            global_last_signal_time = now
-                                            print(f"📡 VIP Trader Sinyal ve Grafik Yayınlandı: {clean_display_sym} ({side})")
-
-                                    # 🤖 Otomatik Pilot İşlem Açma Motoru (Çakışan pozisyonda ve Devre Kesici döneminde işlem açılmaz)
-                                    cb_until = state.get("circuit_breaker_until", 0)
-                                    circuit_active = (time.time() < cb_until)
-                                    last_tr_time = symbol_cooldowns.get(clean_display_sym, 0)
-
-                                    if state["auto_pilot"] and not is_already_open and not circuit_active and state["balance"] >= 300 and (now - last_tr_time) >= 900:
+                                    if state["auto_pilot"] and not is_already_open and not circuit_active and state["balance"] >= 300 and (now - last_bc_time) > SYMBOL_COOLDOWN_SEC and (now - global_last_signal_time) > GLOBAL_COOLDOWN_SEC:
                                         amount = round(min(state["balance"], suggested_pos_size), 2)
                                         size = round(amount / current_price, 4)
 
@@ -1522,24 +1478,47 @@ def background_bot_loop():
 
                                         state["balance"] -= amount
                                         state["positions"].append(pos)
-                                        symbol_cooldowns[clean_display_sym] = time.time()
+                                        signal_broadcast_cooldowns[clean_display_sym] = now
+                                        symbol_cooldowns[clean_display_sym] = now
+                                        global_last_signal_time = now
                                         save_db()
+
+                                        reason_trend = f"EMA200 (`{format_price(ema200)}`) üzerinde Güçlü Boğa Trendi" if side == "LONG" else f"EMA200 (`{format_price(ema200)}`) altında Düşen Ayı Trendi"
+                                        reason_macd = "MACD Histogramı pozitif ivmeyle boğa kesişimi verdi" if side == "LONG" else "MACD Histogramı negatif ivmeyle ayı kesişimi verdi"
+                                        reason_rsi = f"RSI (`{rsi:.1f}`) aşırı satım dip seviyesinden tepki alımı" if side == "LONG" else f"RSI (`{rsi:.1f}`) tepe seviyesinden kâr satışı tepkisi"
+                                        reason_smc = f"Boğa Order Block (`{format_price(supp)}`) Kurumsal Alım Bölgesi" if side == "LONG" else f"Ayı Order Block (`{format_price(resis)}`) Kurumsal Satış Bölgesi"
 
                                         clean_pair = clean_display_sym.replace('/', '')
                                         chart_link = f"https://www.tradingview.com/chart/?symbol=BINANCE:{clean_pair}"
 
-                                        # Telegram Alert for VIP Trade
-                                        msg = (
-                                            f"🚀 *YENİ VIP POZİSYON AÇILDI!* (%{confidence} Başarı Olasılığı)\n"
-                                            f"• Varlık: *{pos['symbol']}* ({pos['side']})\n"
-                                            f"• Giriş Fiyatı: `{format_price(pos['entryPrice'])}`\n"
-                                            f"• Hedef 1 (TP1): `{format_price(pos['tp1'])}` | Hedef 2 (TP2): `{format_price(pos['tp2'])}`\n"
-                                            f"• Stop-Loss (SL): `{format_price(pos['sl'])}`\n"
-                                            f"• Formasyon: *{pos['patternName']}*\n"
-                                            f"📐 Quantfury Önerilen Büyüklük: `$600.00`\n"
-                                            f"📈 [TradingView Canlı Grafik]({chart_link})"
+                                        signal_msg = (
+                                            f"💎 *VIP TRADER SİNYAL & OTOPİLOT İŞLEMİ* (%{confidence} Başarı Olasılığı)\n"
+                                            f"---------------------------------\n"
+                                            f"🎯 *Varlık:* *{clean_display_sym}* ({side} {'📈' if side == 'LONG' else '📉'})\n"
+                                            f"📍 *Giriş Seviyesi:* `{format_price(current_price)}` \n"
+                                            f"🎯 *Kar Al 1 (TP1):* `{format_price(tp1)}` (Kademeli Kâr - %50 Kapat)\n"
+                                            f"🎯 *Kar Al 2 (TP2):* `{format_price(tp2)}` (Ana Hedef)\n"
+                                            f"🚀 *Kar Al 3 (TP3):* `{format_price(tp3)}` (Trend Uzaması)\n"
+                                            f"🛡️ *DCA Kademeli Alım #1:* `{format_price(so1)}` (-%2 Kademesi)\n"
+                                            f"🛡️ *DCA Kademeli Alım #2:* `{format_price(so2)}` (-%4 Kademesi)\n"
+                                            f"🛑 *Stop Loss (SL):* `{format_price(sl)}` (Volatilite Korumalı)\n"
+                                            f"---------------------------------\n"
+                                            f"📐 *QUANTFURY UYGULAMA EMİR BİLGİSİ:*\n"
+                                            f"└ 💵 *Açılan Pozisyon Büyüklüğü:* `${amount:,.2f} USDT` (Otopilot Aktif 🚀)\n"
+                                            f"└ ⚖️ *Önerilen Kaldıraç:* `1x - 5x` (Maksimum Risk: %2.0)\n"
+                                            f"---------------------------------\n"
+                                            f"📊 *KURUMSAL TEKNİK & TEMEL ANALİZ GEREKÇESİ:*\n"
+                                            f"└ 📈 *Makro Trend:* {reason_trend}\n"
+                                            f"└ 🌊 *Momentum:* {reason_macd}\n"
+                                            f"└ 🎯 *RSI & Seviye:* {reason_rsi}\n"
+                                            f"└ 🐋 *Smart Money (SMC):* {reason_smc}\n"
+                                            f"└ 🔍 *Formasyon Yapısı:* *{pattern_name}*\n"
+                                            f"---------------------------------\n"
+                                            f"📈 [Canlı TradingView Grafiği ve Formasyonu İncele]({chart_link})\n"
+                                            f"✨ *VIP Otopilot Pozisyonu Başarıyla Açıldı ve Taramaya Alındı*"
                                         )
-                                        send_telegram_message(msg)
+                                        send_telegram_message(signal_msg)
+                                        print(f"📡 VIP Trader Sinyal ve Otopilot İşlemi Açıldı: {clean_display_sym} ({side})")
                                         break
                     except Exception as e_k:
                         print("Auto-pilot kline scan error:", e_k)
