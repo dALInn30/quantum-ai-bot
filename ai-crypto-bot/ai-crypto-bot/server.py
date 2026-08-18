@@ -520,6 +520,9 @@ def handle_telegram_command(cmd_text, chat_id):
         state["balance"] = 6000.0
         state["positions"] = []
         state["history"] = []
+        signal_broadcast_cooldowns.clear()
+        symbol_cooldowns.clear()
+        global_last_signal_time = 0
         ml_weights["total_learnings"] = 0
         ml_weights["win_streak"] = 0
         ml_weights["loss_streak"] = 0
@@ -1793,6 +1796,9 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             state["balance"] = 6000.0
             state["positions"] = []
             state["history"] = []
+            signal_broadcast_cooldowns.clear()
+            symbol_cooldowns.clear()
+            global_last_signal_time = 0
             ml_weights["total_learnings"] = 0
             ml_weights["win_streak"] = 0
             ml_weights["loss_streak"] = 0
