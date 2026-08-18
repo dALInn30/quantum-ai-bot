@@ -64,6 +64,7 @@ telegram_config = {
 signal_broadcast_cooldowns = {}
 symbol_cooldowns = {}
 global_last_signal_time = 0
+state_lock = threading.Lock()
 
 def is_same_symbol(sym1, sym2):
     if not sym1 or not sym2:
@@ -542,6 +543,20 @@ def handle_telegram_command(cmd_text, chat_id):
             reply_markup=MAIN_REPLY_KEYBOARD,
             target_chat_id=chat_id
         )
+    else:
+        msg_help = (
+            "🤖 *QUANTUM AI BOT YARDIM VE KOMUT LİSTESİ*\n\n"
+            "• `/pozisyonlar` - Aktif açık pozisyonları listeler\n"
+            "• `/gecmis` - Son 3 günde kapanan işlemleri gösterir\n"
+            "• `/pnl` - Anlık bakiye ve kâr/zarar özetini verir\n"
+            "• `/haftalik` - 7 günlük performans karnesini sunar\n"
+            "• `/durum` - Yapay zeka öğrenme ve bot durumunu gösterir\n"
+            "• `/saglik` - Sistem diagnostik ve API bağlantı durumunu raporlar\n"
+            "• `/backtest` - 90 günlük geriye dönük simülasyonu çalıştırır\n"
+            "• `/kapat` - Tüm açık pozisyonları anında kapatır\n"
+            "• `/sifirla` - Portföy ve işlem geçmişini sıfırlar"
+        )
+        send_telegram_message(msg_help, reply_markup=MAIN_REPLY_KEYBOARD, target_chat_id=chat_id)
 
 def telegram_listener_loop():
     print("📱 Telegram İnteraktif Komut ve Sinyal Dinleyicisi Başlatıldı...")
@@ -595,6 +610,8 @@ def telegram_listener_loop():
                                 add_telegram_subscriber(cb_chat_id)
                                 if cb_data == "cmd_positions":
                                     handle_telegram_command("pozisyonlar", cb_chat_id)
+                                elif cb_data == "cmd_history":
+                                    handle_telegram_command("gecmis", cb_chat_id)
                                 elif cb_data == "cmd_pnl":
                                     handle_telegram_command("pnl", cb_chat_id)
                                 elif cb_data == "cmd_status":
@@ -774,8 +791,8 @@ def calculate_python_indicators(k_data_15m, k_data_90d=None):
     rsi_bullish_div = False
     rsi_bearish_div = False
     if len(closes) >= 30:
-        min_p_idx1 = lows.index(min(lows[-15:]))
-        min_p_idx2 = lows.index(min(lows[-30:-15])) if len(lows) >= 30 else 0
+        min_p_idx1 = (len(lows) - 15) + lows[-15:].index(min(lows[-15:]))
+        min_p_idx2 = (len(lows) - 30) + lows[-30:-15].index(min(lows[-30:-15]))
         if lows[min_p_idx1] < lows[min_p_idx2] and rsi > 32:
             rsi_bullish_div = True
         elif highs[-1] > max(highs[-30:-15]) and rsi < 68:
@@ -1520,6 +1537,13 @@ def background_bot_loop():
 
 # Web Server & REST API Handler
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.end_headers()
+
     def do_GET(self):
         if self.path == "/health":
             self.send_response(200)
@@ -1620,6 +1644,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"success": ok, "message": msg, "subscribers_count": len(get_telegram_chat_ids())}).encode('utf-8'))
             return
@@ -1646,6 +1671,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             ok, msg = send_telegram_message(test_msg)
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"success": ok, "message": msg}).encode('utf-8'))
             return
@@ -1724,6 +1750,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(json.dumps({"success": True, "position": pos}).encode('utf-8'))
                 return
@@ -1733,6 +1760,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             save_db()
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps({"success": True, "auto_pilot": state["auto_pilot"]}).encode('utf-8'))
             return
