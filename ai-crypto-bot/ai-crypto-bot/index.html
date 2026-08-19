@@ -257,6 +257,36 @@
             </table>
           </div>
 
+          <!-- Active Grid Trading Strategies Section -->
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-top: 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 12px;">
+            <span><i class="fa-solid fa-border-all" style="color: #38bdf8;"></i> AI Grid Stratejileri (<span id="gridCount">0</span>)</span>
+            <button id="btnCreateGrid" style="background: rgba(56, 189, 248, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-size: 10px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">
+              <i class="fa-solid fa-plus"></i> Grid Başlat
+            </button>
+          </div>
+
+          <div style="max-height: 160px; overflow-y: auto; margin-bottom: 12px;">
+            <table class="positions-table">
+              <thead>
+                <tr>
+                  <th>Varlık</th>
+                  <th>Aralık (Alt / Üst)</th>
+                  <th>Kademe</th>
+                  <th>Bakiye</th>
+                  <th>Net PnL</th>
+                  <th>Durdur</th>
+                </tr>
+              </thead>
+              <tbody id="gridTbody">
+                <tr>
+                  <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 12px;">
+                    Aktif AI Grid stratejisi bulunmuyor.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <!-- Closed Trade History Table Section -->
           <div style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-top: 16px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 12px;">
             <span><i class="fa-solid fa-clock-rotate-left" style="color: var(--color-accent-cyan);"></i> Kapanan İşlem Geçmişi (<span id="histCount">0</span>)</span>
