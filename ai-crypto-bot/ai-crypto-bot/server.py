@@ -8,6 +8,10 @@ import time
 import os
 import sys
 import io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 if sys.platform == 'win32':
     try:
@@ -168,7 +172,8 @@ MAIN_REPLY_KEYBOARD = {
     "keyboard": [
         [{"text": "📊 Açık Pozisyonlar"}, {"text": "📜 Kapanan İşlemler"}],
         [{"text": "💰 Toplam Kar/Zarar"}, {"text": "🌐 AI Grid Stratejileri"}],
-        [{"text": "🤖 Bot Durumu"}, {"text": "🧹 Tüm Pozisyonları Kapat"}]
+        [{"text": "📷 Analiz Grafiği"}, {"text": "🤖 Bot Durumu"}],
+        [{"text": "🧹 Tüm Pozisyonları Kapat"}]
     ],
     "resize_keyboard": True,
     "is_persistent": True
@@ -185,6 +190,7 @@ INLINE_CHANNEL_KEYBOARD = {
             {"text": "🌐 Grid Stratejileri", "callback_data": "cmd_grid"}
         ],
         [
+            {"text": "📷 HD Analiz Grafiği", "callback_data": "cmd_chart"},
             {"text": "🤖 YZ Canlı Durumu", "callback_data": "cmd_status"}
         ]
     ]
@@ -276,6 +282,198 @@ def send_telegram_message(text, reply_markup=None, target_chat_id=None):
     else:
         return False, last_error or "Telegram gönderim hatası."
 
+def send_telegram_photo(photo_bytes, caption="", reply_markup=None, target_chat_id=None):
+    if not telegram_config.get("enabled", True):
+        return False, "Telegram bildirimleri devre dışı."
+    token = telegram_config.get("bot_token", "").strip()
+    if not token:
+        return False, "Bot Token eksik."
+
+    if target_chat_id:
+        targets = [str(target_chat_id).strip()]
+    else:
+        targets = get_telegram_chat_ids()
+
+    if not targets:
+        return False, "Kayıtlı Chat ID veya Kanal bulunamadı."
+
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    
+    success_count = 0
+    last_error = ""
+
+    for cid in targets:
+        try:
+            body = bytearray()
+            
+            # Field: chat_id
+            body.extend(f"--{boundary}\r\n".encode('utf-8'))
+            body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{cid}\r\n'.encode('utf-8'))
+
+            # Field: caption
+            if caption:
+                body.extend(f"--{boundary}\r\n".encode('utf-8'))
+                body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
+                body.extend(f"--{boundary}\r\n".encode('utf-8'))
+                body.extend(f'Content-Disposition: form-data; name="parse_mode"\r\n\r\nMarkdown\r\n'.encode('utf-8'))
+
+            # Field: reply_markup
+            if reply_markup is None:
+                rm = INLINE_CHANNEL_KEYBOARD if (str(cid).startswith("-") or str(cid).startswith("@")) else MAIN_REPLY_KEYBOARD
+                body.extend(f"--{boundary}\r\n".encode('utf-8'))
+                body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(rm)}\r\n'.encode('utf-8'))
+            elif reply_markup:
+                body.extend(f"--{boundary}\r\n".encode('utf-8'))
+                body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(reply_markup)}\r\n'.encode('utf-8'))
+
+            # Field: photo file
+            body.extend(f"--{boundary}\r\n".encode('utf-8'))
+            body.extend(f'Content-Disposition: form-data; name="photo"; filename="chart.png"\r\n'.encode('utf-8'))
+            body.extend(b'Content-Type: image/png\r\n\r\n')
+            body.extend(photo_bytes)
+            body.extend(b'\r\n')
+            
+            body.extend(f"--{boundary}--\r\n".encode('utf-8'))
+
+            headers = {
+                'Content-Type': f'multipart/form-data; boundary={boundary}',
+                'User-Agent': 'Mozilla/5.0'
+            }
+            req = urllib.request.Request(url, data=bytes(body), headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                b = json.loads(resp.read().decode('utf-8'))
+                if b.get("ok"):
+                    success_count += 1
+        except Exception as e:
+            last_error = str(e)
+            print(f"❌ Telegram Görsel Gönderim Hatası [{cid}]: {e}")
+
+    if success_count > 0:
+        return True, f"{success_count} alıcıya görsel başarıyla gönderildi."
+    return False, last_error or "Telegram görsel gönderim hatası."
+
+def generate_analysis_chart_image(symbol, prices, indicators=None, signal=None, grid_info=None):
+    """
+    HD Dark-Themed Chart Plotter (Matplotlib -> PNG Bytes)
+    Draws Trend Channels, Grid Channels, W/M/Flag Formations, Support/Resistance, TP/SL lines.
+    """
+    if not prices or len(prices) == 0:
+        return None
+
+    try:
+        fig, ax = plt.subplots(figsize=(10, 5.5), dpi=120)
+        fig.patch.set_facecolor('#0b0e14')
+        ax.set_facecolor('#131722')
+
+        n = len(prices)
+        x_indices = list(range(n))
+
+        # Main Price Line & Gradient Shading
+        ax.plot(x_indices, prices, color='#00f2fe', linewidth=2.0, label='Fiyat (USDT)', zorder=4)
+        ax.fill_between(x_indices, prices, min(prices) * 0.995, color='#00f2fe', alpha=0.08, zorder=3)
+
+        # 1. 📐 Trend Channel (Upper/Lower trendlines + translucent fill)
+        if n >= 10:
+            half = n // 2
+            h1_idx = max(range(0, half), key=lambda i: prices[i])
+            h2_idx = max(range(half, n), key=lambda i: prices[i])
+            l1_idx = min(range(0, half), key=lambda i: prices[i])
+            l2_idx = min(range(half, n), key=lambda i: prices[i])
+
+            slope_h = (prices[h2_idx] - prices[h1_idx]) / (h2_idx - h1_idx or 1)
+            y_upper = [prices[h1_idx] + slope_h * (i - h1_idx) for i in x_indices]
+            ax.plot(x_indices, y_upper, color='#ff4081', linestyle='--', linewidth=1.2, alpha=0.8)
+
+            slope_l = (prices[l2_idx] - prices[l1_idx]) / (l2_idx - l1_idx or 1)
+            y_lower = [prices[l1_idx] + slope_l * (i - l1_idx) for i in x_indices]
+            ax.plot(x_indices, y_lower, color='#00e676', linestyle='--', linewidth=1.2, alpha=0.8)
+
+            ax.fill_between(x_indices, y_lower, y_upper, color='#7c4dff', alpha=0.05, zorder=2)
+            ax.text(x_indices[1], y_upper[1] * 1.001, '[TREND KANALI]', color='#b388ff', fontsize=8, fontweight='bold')
+
+        # 2. Grid Bot Channel Overlay
+        if grid_info and 'lowerBound' in grid_info and 'upperBound' in grid_info:
+            g_low = grid_info['lowerBound']
+            g_high = grid_info['upperBound']
+            ax.axhline(g_high, color='#ff4081', linestyle='-', linewidth=1.5, alpha=0.9)
+            ax.axhline(g_low, color='#00e676', linestyle='-', linewidth=1.5, alpha=0.9)
+            ax.text(n - 1, g_high, f' GRID UST: ${g_high}', color='#ff4081', fontsize=8, fontweight='bold', va='bottom')
+            ax.text(n - 1, g_low, f' GRID ALT: ${g_low}', color='#00e676', fontsize=8, fontweight='bold', va='top')
+
+            grids = grid_info.get('gridCount', 5)
+            step = (g_high - g_low) / grids
+            for g_i in range(1, grids):
+                g_p = g_low + (g_i * step)
+                ax.axhline(g_p, color='#00f2fe', linestyle=':', linewidth=0.8, alpha=0.4)
+
+        # 3. Destek / Direnc & TP / SL Level Lines
+        if indicators:
+            sup = indicators.get('supportLevel') or indicators.get('support')
+            res = indicators.get('resistanceLevel') or indicators.get('resistance')
+            if sup:
+                ax.axhline(sup, color='#00e676', linestyle=':', linewidth=1.2, alpha=0.7)
+                ax.text(0, sup, f' DESTEK: ${sup:.2f}', color='#00e676', fontsize=8, va='bottom', fontweight='bold')
+            if res:
+                ax.axhline(res, color='#ff1744', linestyle=':', linewidth=1.2, alpha=0.7)
+                ax.text(0, res, f' DIRENC: ${res:.2f}', color='#ff1744', fontsize=8, va='top', fontweight='bold')
+
+        if signal:
+            sl = signal.get('sl')
+            tp1 = signal.get('tp1')
+            tp2 = signal.get('tp2')
+            if sl:
+                ax.axhline(sl, color='#ff1744', linestyle='--', linewidth=1.5, alpha=0.9)
+                ax.text(n - 1, sl, f' [SL]: ${sl}', color='#ff1744', fontsize=8, fontweight='bold')
+            if tp1:
+                ax.axhline(tp1, color='#00e676', linestyle='--', linewidth=1.5, alpha=0.9)
+                ax.text(n - 1, tp1, f' [TP1]: ${tp1}', color='#00e676', fontsize=8, fontweight='bold')
+            if tp2:
+                ax.axhline(tp2, color='#00b0ff', linestyle='--', linewidth=1.5, alpha=0.9)
+                ax.text(n - 1, tp2, f' [TP2]: ${tp2}', color='#00b0ff', fontsize=8, fontweight='bold')
+
+        # 4. Formasyonlar (W Dip, M Tepe, Boga Bayragi)
+        pattern_name = ""
+        if indicators and isinstance(indicators.get('patterns'), dict):
+            pattern_name = indicators.get('patterns', {}).get('name', '')
+        elif signal and 'patternName' in signal:
+            pattern_name = signal.get('patternName', '')
+
+        if 'W' in pattern_name or 'İkili Dip' in pattern_name:
+            if n >= 15:
+                w_x = [n-15, n-10, n-5, n-1]
+                w_y = [prices[n-15], prices[n-10], prices[n-5], prices[n-1]]
+                ax.plot(w_x, w_y, color='#00e676', linewidth=2.5, zorder=5)
+                ax.text(w_x[0], w_y[1] * 1.002, '[FORMASYON: W-DIP]', color='#00e676', fontsize=9, fontweight='bold')
+        elif 'M' in pattern_name or 'İkili Tepe' in pattern_name:
+            if n >= 15:
+                m_x = [n-15, n-10, n-5, n-1]
+                m_y = [prices[n-15], prices[n-10], prices[n-5], prices[n-1]]
+                ax.plot(m_x, m_y, color='#ff1744', linewidth=2.5, zorder=5)
+                ax.text(m_x[0], m_y[0] * 1.002, '[FORMASYON: M-TEPE]', color='#ff1744', fontsize=9, fontweight='bold')
+        elif 'Bayrak' in pattern_name or 'Bull Flag' in pattern_name:
+            if n >= 20:
+                ax.plot([n-20, n-10], [prices[n-20], prices[n-10]], color='#00b0ff', linewidth=2.5, zorder=5)
+                ax.text(n-20, prices[n-10] * 1.002, '[BOGA BAYRAGI]', color='#00b0ff', fontsize=9, fontweight='bold')
+
+        # Formatting
+        curr_price = prices[-1]
+        ax.set_title(f'QUANTUM AI TEKNİK ANALİZ GRAFİĞİ: {symbol} (${curr_price:,.2f})', color='#ffffff', fontsize=11, fontweight='bold', pad=12)
+        ax.grid(True, color='#ffffff', alpha=0.08, linestyle='-')
+        ax.tick_params(colors='#888888', labelsize=8)
+
+        for spine in ax.spines.values():
+            spine.set_color('#222836')
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
+        plt.close(fig)
+        buf.seek(0)
+        return buf.getvalue()
+    except Exception as e:
+        print(f"❌ Grafik çizim hatası: {e}")
+        return None
+
 def get_fear_and_greed_index():
     try:
         url = "https://api.alternative.me/fng/"
@@ -295,6 +493,7 @@ def set_telegram_commands():
         token = telegram_config["bot_token"].strip()
         url = f"https://api.telegram.org/bot{token}/setMyCommands"
         commands = [
+            {"command": "grafik", "description": "📷 Çizimli HD teknik analiz, kanal ve formasyon grafiği"},
             {"command": "pozisyonlar", "description": "📊 Açık pozisyonlar ve anlık PnL"},
             {"command": "gecmis", "description": "📜 Son 3 gün içinde kapanmış işlem geçmişi"},
             {"command": "pnl", "description": "💰 Toplam kâr/zarar ve portföy özeti"},
@@ -320,7 +519,68 @@ def handle_telegram_command(cmd_text, chat_id):
         telegram_config["chat_id"] = str(chat_id)
         save_telegram_config()
     
-    if "açık pozisyon" in cmd or cmd in ["/pozisyonlar", "/pozisyon", "pozisyonlar"]:
+    if "grafik" in cmd or "chart" in cmd or "analiz grafiği" in cmd or cmd in ["cmd_chart"]:
+        parts = cmd_text.strip().split()
+        target_sym = "BTCUSDT"
+        if len(parts) > 1:
+            raw_sym = parts[1].upper().replace("/", "").replace("-", "")
+            if not raw_sym.endswith("USDT"):
+                raw_sym += "USDT"
+            if raw_sym in state.get("symbols", []):
+                target_sym = raw_sym
+
+        klines_raw = None
+        prices = []
+        try:
+            url = f"https://api.binance.com/api/v3/klines?symbol={target_sym}&interval=15m&limit=50"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                klines_raw = json.loads(resp.read().decode('utf-8'))
+                prices = [float(k[4]) for k in klines_raw]
+        except Exception as ex:
+            print("Binance klines fetch error:", ex)
+            if state.get("klines_data", {}).get(target_sym):
+                prices = state.get("klines_data", {}).get(target_sym, [])
+
+        if not prices:
+            send_telegram_message(f"❌ *{target_sym}* için fiyat verisi alınamadı.", target_chat_id=chat_id)
+            return
+
+        ind = calculate_python_indicators(klines_raw) if klines_raw else None
+        
+        grid_info = None
+        for g in state.get("grid_bots", []):
+            if g.get("symbol") == target_sym:
+                grid_info = g
+                break
+
+        curr_p = prices[-1]
+        sig = {
+            'entryPrice': curr_p,
+            'sl': round(curr_p * 0.978, 2),
+            'tp1': round(curr_p * 1.022, 2),
+            'tp2': round(curr_p * 1.045, 2)
+        }
+
+        photo = generate_analysis_chart_image(target_sym, prices, ind, sig, grid_info)
+        if photo:
+            p_name = ind.get('patterns', {}).get('name', 'Kanal İçi') if ind else 'Kanal İçi'
+            sup = ind.get('support', curr_p * 0.98) if ind else curr_p * 0.98
+            res = ind.get('resistance', curr_p * 1.02) if ind else curr_p * 1.02
+            
+            cap = (
+                f"📷 *QUANTUM AI HD TEKNİK ANALİZ GRAFİĞİ ({target_sym})*\n\n"
+                f"💵 Canlı Fiyat: `${curr_p:,.2f} USDT`\n"
+                f"📐 Trend Kanalı & Grid Seviyeleri Grafikte Çizildi ✅\n"
+                f"🧩 Formasyon: *{p_name}*\n"
+                f"🎯 Destek: `${sup:,.2f}` | Direnç: `${res:,.2f}`\n"
+                f"🎯 TP1: `${sig['tp1']:,.2f}` | 🛑 SL: `${sig['sl']:,.2f}`"
+            )
+            send_telegram_photo(photo, caption=cap, target_chat_id=chat_id)
+        else:
+            send_telegram_message("❌ Grafik görseli oluşturulurken bir sorun yaşandı.", target_chat_id=chat_id)
+
+    elif "açık pozisyon" in cmd or cmd in ["/pozisyonlar", "/pozisyon", "pozisyonlar"]:
         positions = state.get("positions", [])
         if not positions:
             send_telegram_message("ℹ️ *Şu anda aktif açık pozisyon bulunmamaktadır.*", target_chat_id=chat_id)

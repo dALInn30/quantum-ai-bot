@@ -20,7 +20,15 @@ class AppController {
     this.chartManager = new ChartManager('cryptoChart');
     this.portfolio = new PortfolioManager();
 
-    this.symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT', 'BNBUSDT', 'NEARUSDT', 'LINKUSDT', 'XRPUSDT', 'DOGEUSDT', 'SUIUSDT'];
+    this.symbols = [
+      'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ZECUSDT', 'XLMUSDT', 
+      'TAOUSDT', 'POLUSDT', 'ONDOUSDT', 'GRAMUSDT', 'LINKUSDT', 
+      'APTUSDT', 'LTCUSDT', 'THETAUSDT', 'AVAXUSDT', 'BCHUSDT', 
+      'SUIUSDT', 'RUNEUSDT', 'RENDERUSDT', 'OPUSDT', 'INJUSDT', 
+      'HBARUSDT', 'DOGEUSDT', 'ARBUSDT', 'ADAUSDT', 'XRPUSDT', 
+      'NEARUSDT', 'ATOMUSDT', 'AAVEUSDT', 'DOTUSDT', 'ETCUSDT', 
+      'FILUSDT', 'UNIUSDT', 'SANDUSDT'
+    ];
     this.activeSymbol = 'BTCUSDT';
     this.activeTimeframe = '15m';
     this.activeStrategyMode = 'daytrade';
@@ -183,7 +191,7 @@ class AppController {
     const activePrices = this.priceHistories[this.activeSymbol];
     if (activePrices && activePrices.length > 0) {
       const indicators = this.aiEngine.calculateIndicators(activePrices);
-      this.chartManager.renderChart(activePrices, indicators, this.predictionCurve);
+      this.chartManager.renderChart(activePrices, indicators, this.predictionCurve, { signal: this.currentSignal });
     }
 
     // 4. Update Portfolio Mark Prices with real market prices
@@ -326,6 +334,20 @@ class AppController {
     const btnRun = document.getElementById('btnRunAnalysis');
     if (btnRun) {
       btnRun.addEventListener('click', () => this.runAIAnalysis());
+    }
+
+    // Download Chart HD Image Button
+    const btnDownload = document.getElementById('btnDownloadChart');
+    if (btnDownload) {
+      btnDownload.addEventListener('click', () => {
+        const dataUrl = this.chartManager.exportChartAsImage();
+        if (dataUrl) {
+          const a = document.createElement('a');
+          a.download = `QUANTUM_AI_ANALIZ_${this.activeSymbol.replace('/', '_')}_${new Date().toISOString().slice(0,10)}.png`;
+          a.href = dataUrl;
+          a.click();
+        }
+      });
     }
 
     // Execute Trade Button
@@ -536,7 +558,7 @@ class AppController {
 
     // Generate Prediction Curve & Update Chart
     this.predictionCurve = this.aiEngine.generatePredictionCurve(prices, this.currentSignal);
-    this.chartManager.renderChart(prices, indicators, this.predictionCurve);
+    this.chartManager.renderChart(prices, indicators, this.predictionCurve, { signal: this.currentSignal });
   }
 
   updateSignalCardUI(signal) {
