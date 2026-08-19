@@ -8,10 +8,15 @@ import time
 import os
 import sys
 import io
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+HAS_MATPLOTLIB = False
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    HAS_MATPLOTLIB = True
+except Exception as _m_err:
+    print("⚠️ Matplotlib import notification:", _m_err)
 
 if sys.platform == 'win32':
     try:
@@ -358,7 +363,7 @@ def generate_analysis_chart_image(symbol, prices, indicators=None, signal=None, 
     HD Dark-Themed Chart Plotter (Matplotlib -> PNG Bytes)
     Draws Trend Channels, Grid Channels, W/M/Flag Formations, Support/Resistance, TP/SL lines.
     """
-    if not prices or len(prices) == 0:
+    if not prices or len(prices) == 0 or not HAS_MATPLOTLIB:
         return None
 
     try:
