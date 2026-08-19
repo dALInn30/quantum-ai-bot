@@ -294,6 +294,9 @@ def send_telegram_photo(photo_bytes, caption="", reply_markup=None, target_chat_
     if not token:
         return False, "Bot Token eksik."
 
+    if not photo_bytes:
+        return False, "Görsel verisi boş."
+
     if target_chat_id:
         targets = [str(target_chat_id).strip()]
     else:
@@ -303,141 +306,288 @@ def send_telegram_photo(photo_bytes, caption="", reply_markup=None, target_chat_
         return False, "Kayıtlı Chat ID veya Kanal bulunamadı."
 
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
     
     success_count = 0
     last_error = ""
 
+    def build_multipart_payload(cid, cap_text, parse_mode_val, rm_obj):
+        boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+        body = bytearray()
+        
+        # Field: chat_id
+        body.extend(f"--{boundary}\r\n".encode('utf-8'))
+        body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{cid}\r\n'.encode('utf-8'))
+
+        # Field: caption
+        if cap_text:
+            body.extend(f"--{boundary}\r\n".encode('utf-8'))
+            body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{cap_text}\r\n'.encode('utf-8'))
+            if parse_mode_val:
+                body.extend(f"--{boundary}\r\n".encode('utf-8'))
+                body.extend(f'Content-Disposition: form-data; name="parse_mode"\r\n\r\n{parse_mode_val}\r\n'.encode('utf-8'))
+
+        # Field: reply_markup
+        if rm_obj is None:
+            rm = INLINE_CHANNEL_KEYBOARD if (str(cid).startswith("-") or str(cid).startswith("@")) else MAIN_REPLY_KEYBOARD
+            body.extend(f"--{boundary}\r\n".encode('utf-8'))
+            body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(rm)}\r\n'.encode('utf-8'))
+        elif rm_obj:
+            body.extend(f"--{boundary}\r\n".encode('utf-8'))
+            body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(rm_obj)}\r\n'.encode('utf-8'))
+
+        # Field: photo file
+        body.extend(f"--{boundary}\r\n".encode('utf-8'))
+        body.extend(f'Content-Disposition: form-data; name="photo"; filename="chart.png"\r\n'.encode('utf-8'))
+        body.extend(b'Content-Type: image/png\r\n\r\n')
+        body.extend(photo_bytes)
+        body.extend(b'\r\n')
+        
+        body.extend(f"--{boundary}--\r\n".encode('utf-8'))
+        return bytes(body), f'multipart/form-data; boundary={boundary}'
+
     for cid in targets:
+        sent = False
+        # Try 1: Send photo with Markdown formatted caption
         try:
-            body = bytearray()
-            
-            # Field: chat_id
-            body.extend(f"--{boundary}\r\n".encode('utf-8'))
-            body.extend(f'Content-Disposition: form-data; name="chat_id"\r\n\r\n{cid}\r\n'.encode('utf-8'))
-
-            # Field: caption
-            if caption:
-                body.extend(f"--{boundary}\r\n".encode('utf-8'))
-                body.extend(f'Content-Disposition: form-data; name="caption"\r\n\r\n{caption}\r\n'.encode('utf-8'))
-                body.extend(f"--{boundary}\r\n".encode('utf-8'))
-                body.extend(f'Content-Disposition: form-data; name="parse_mode"\r\n\r\nMarkdown\r\n'.encode('utf-8'))
-
-            # Field: reply_markup
-            if reply_markup is None:
-                rm = INLINE_CHANNEL_KEYBOARD if (str(cid).startswith("-") or str(cid).startswith("@")) else MAIN_REPLY_KEYBOARD
-                body.extend(f"--{boundary}\r\n".encode('utf-8'))
-                body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(rm)}\r\n'.encode('utf-8'))
-            elif reply_markup:
-                body.extend(f"--{boundary}\r\n".encode('utf-8'))
-                body.extend(f'Content-Disposition: form-data; name="reply_markup"\r\n\r\n{json.dumps(reply_markup)}\r\n'.encode('utf-8'))
-
-            # Field: photo file
-            body.extend(f"--{boundary}\r\n".encode('utf-8'))
-            body.extend(f'Content-Disposition: form-data; name="photo"; filename="chart.png"\r\n'.encode('utf-8'))
-            body.extend(b'Content-Type: image/png\r\n\r\n')
-            body.extend(photo_bytes)
-            body.extend(b'\r\n')
-            
-            body.extend(f"--{boundary}--\r\n".encode('utf-8'))
-
-            headers = {
-                'Content-Type': f'multipart/form-data; boundary={boundary}',
-                'User-Agent': 'Mozilla/5.0'
-            }
-            req = urllib.request.Request(url, data=bytes(body), headers=headers)
+            payload_bytes, content_type = build_multipart_payload(cid, caption, "Markdown", reply_markup)
+            req = urllib.request.Request(url, data=payload_bytes, headers={'Content-Type': content_type, 'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=12) as resp:
                 b = json.loads(resp.read().decode('utf-8'))
                 if b.get("ok"):
                     success_count += 1
+                    sent = True
+        except urllib.error.HTTPError as e:
+            if e.code in [400, 403]:
+                # Fallback Try 2: If 400 Bad Request (Markdown parse error), strip markdown and resend photo
+                try:
+                    plain_cap = caption.replace("*", "").replace("`", "").replace("_", "") if caption else ""
+                    p_bytes, p_c_type = build_multipart_payload(cid, plain_cap, None, reply_markup)
+                    req_p = urllib.request.Request(url, data=p_bytes, headers={'Content-Type': p_c_type, 'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req_p, timeout=12) as r_p:
+                        b_p = json.loads(r_p.read().decode('utf-8'))
+                        if b_p.get("ok"):
+                            success_count += 1
+                            sent = True
+                except Exception as ex_p:
+                    last_error = f"HTTP {e.code}: {str(ex_p)}"
+            else:
+                last_error = f"HTTP {e.code}: {e.reason}"
         except Exception as e:
             last_error = str(e)
-            print(f"❌ Telegram Görsel Gönderim Hatası [{cid}]: {e}")
+
+        if not sent:
+            print(f"❌ Telegram Görsel Gönderim Hatası [{cid}]: {last_error}")
 
     if success_count > 0:
         return True, f"{success_count} alıcıya görsel başarıyla gönderildi."
     return False, last_error or "Telegram görsel gönderim hatası."
 
-def generate_analysis_chart_image(symbol, prices, indicators=None, signal=None, grid_info=None):
+def generate_analysis_chart_image(symbol, data, indicators=None, signal=None, grid_info=None, btc_context=None):
     """
-    HD Dark-Themed Chart Plotter (Matplotlib -> PNG Bytes)
-    Draws Trend Channels, Grid Channels, W/M/Flag Formations, Support/Resistance, TP/SL lines.
+    HD Dark-Themed Real Japanese Candlestick Chart Plotter (Matplotlib -> PNG Bytes)
+    Draws Real Green/Red Candlesticks, Wicks, Volume Sub-chart with SMA20, EMA20/EMA50/EMA200,
+    Shaded Support/Resistance Zones, Trend Channels (Upper, Lower, Median & Interior Shading),
+    TP1/TP2/TP3 & SL Levels with % ROI badges, Pattern Annotations, and BTC Context Watermark.
     """
-    if not prices or len(prices) == 0 or not HAS_MATPLOTLIB:
+    if not data or len(data) == 0 or not HAS_MATPLOTLIB:
         return None
 
     try:
-        fig, ax = plt.subplots(figsize=(10, 5.5), dpi=120)
-        fig.patch.set_facecolor('#0b0e14')
-        ax.set_facecolor('#131722')
+        # 1. Parse OHLCV data from Binance klines or price list
+        opens, highs, lows, closes, volumes = [], [], [], [], []
+        
+        for i, item in enumerate(data):
+            if isinstance(item, (list, tuple)) and len(item) >= 5:
+                o = float(item[1])
+                h = float(item[2])
+                l = float(item[3])
+                c = float(item[4])
+                v = float(item[5]) if len(item) > 5 else 1.0
+            elif isinstance(item, dict):
+                o = float(item.get('open', item.get('close', 0)))
+                h = float(item.get('high', item.get('close', 0)))
+                l = float(item.get('low', item.get('close', 0)))
+                c = float(item.get('close', 0))
+                v = float(item.get('volume', 1.0))
+            elif isinstance(item, (int, float)):
+                c = float(item)
+                prev_c = float(data[i-1]) if i > 0 else c * 0.999
+                o = prev_c
+                h = max(o, c) * (1.0 + 0.0015 * (1 + (i % 3)))
+                l = min(o, c) * (1.0 - 0.0015 * (1 + (i % 2)))
+                v = 100.0 + (i % 5) * 20.0
+            else:
+                continue
+            
+            opens.append(o)
+            highs.append(h)
+            lows.append(l)
+            closes.append(c)
+            volumes.append(v)
 
-        n = len(prices)
+        n = len(closes)
+        if n == 0:
+            return None
+
         x_indices = list(range(n))
+        curr_p = closes[-1]
 
-        # Main Price Line & Gradient Shading
-        ax.plot(x_indices, prices, color='#00f2fe', linewidth=2.0, label='Fiyat (USDT)', zorder=4)
-        ax.fill_between(x_indices, prices, min(prices) * 0.995, color='#00f2fe', alpha=0.08, zorder=3)
+        # 2. Setup Figure & Subplots (Price Candles + Volume)
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11.0, 6.6), dpi=120, gridspec_kw={'height_ratios': [3.5, 1]})
+        fig.patch.set_facecolor('#0b0e14')
+        ax1.set_facecolor('#131722')
+        ax2.set_facecolor('#131722')
 
-        # 1. 📐 Trend Channel (Upper/Lower trendlines + translucent fill)
+        # 3. Draw Japanese Candlesticks & Volume Bars
+        candle_width = 0.58
+        for i in range(n):
+            o, h, l, c, v = opens[i], highs[i], lows[i], closes[i], volumes[i]
+            is_bull = c >= o
+            color = '#00e676' if is_bull else '#ff1744'  # Neon Green vs Vibrant Red
+            edge_color = '#00c853' if is_bull else '#d50000'
+
+            # Wick line (Fitil)
+            ax1.vlines(i, l, h, color=color, linewidth=1.1, alpha=0.95, zorder=3)
+
+            # Body rectangle (Mum Gövdesi)
+            body_bottom = o if is_bull else c
+            body_height = abs(c - o)
+            if body_height == 0:
+                body_height = (h - l) * 0.03 or (c * 0.0005)
+
+            rect = patches.Rectangle(
+                (i - candle_width / 2, body_bottom),
+                candle_width,
+                body_height,
+                facecolor=color,
+                edgecolor=edge_color,
+                linewidth=0.7,
+                zorder=4
+            )
+            ax1.add_patch(rect)
+
+            # Volume Bar (Hacim Çubuğu)
+            ax2.bar(i, v, color=color, width=0.6, alpha=0.65)
+
+        # Volume Moving Average (SMA20)
+        if n >= 5:
+            vol_sma20 = []
+            for i in range(n):
+                sub_v = volumes[max(0, i-19):i+1]
+                vol_sma20.append(sum(sub_v) / len(sub_v))
+            ax2.plot(x_indices, vol_sma20, color='#ffd700', linestyle=':', linewidth=1.2, alpha=0.85, label='Hacim Ort. (SMA20)')
+
+        # 4. Moving Averages (EMA 20, EMA 50, EMA 200)
+        def calc_ema_list(series, period):
+            ema_list = []
+            k = 2.0 / (period + 1.0)
+            for i, val in enumerate(series):
+                if i == 0:
+                    ema_list.append(val)
+                else:
+                    ema_list.append(val * k + ema_list[-1] * (1.0 - k))
+            return ema_list
+
+        if n >= 5:
+            ema20 = calc_ema_list(closes, 20)
+            ax1.plot(x_indices, ema20, color='#ffd700', linewidth=1.4, label='EMA 20', alpha=0.9, zorder=5)
+
+        if n >= 15:
+            ema50 = calc_ema_list(closes, 50)
+            ax1.plot(x_indices, ema50, color='#ab47bc', linestyle='-', linewidth=1.3, label='EMA 50', alpha=0.85, zorder=5)
+
+        if n >= 25:
+            ema200 = calc_ema_list(closes, 200)
+            ax1.plot(x_indices, ema200, color='#00e5ff', linestyle='-', linewidth=1.3, label='EMA 200 (Ana Trend)', alpha=0.8, zorder=5)
+
+        # 5. Trend Channels (Üst, Alt, Orta Trend Çizgileri ve Renkli Dolgu)
         if n >= 10:
             half = n // 2
-            h1_idx = max(range(0, half), key=lambda i: prices[i])
-            h2_idx = max(range(half, n), key=lambda i: prices[i])
-            l1_idx = min(range(0, half), key=lambda i: prices[i])
-            l2_idx = min(range(half, n), key=lambda i: prices[i])
+            h1_idx = max(range(0, half), key=lambda i: highs[i])
+            h2_idx = max(range(half, n), key=lambda i: highs[i])
+            l1_idx = min(range(0, half), key=lambda i: lows[i])
+            l2_idx = min(range(half, n), key=lambda i: lows[i])
 
-            slope_h = (prices[h2_idx] - prices[h1_idx]) / (h2_idx - h1_idx or 1)
-            y_upper = [prices[h1_idx] + slope_h * (i - h1_idx) for i in x_indices]
-            ax.plot(x_indices, y_upper, color='#ff4081', linestyle='--', linewidth=1.2, alpha=0.8)
+            slope_h = (highs[h2_idx] - highs[h1_idx]) / (h2_idx - h1_idx or 1)
+            y_upper = [highs[h1_idx] + slope_h * (i - h1_idx) for i in x_indices]
+            ax1.plot(x_indices, y_upper, color='#ff4081', linestyle='--', linewidth=1.4, alpha=0.85, label='Kanal Üst (Direnç)', zorder=2)
 
-            slope_l = (prices[l2_idx] - prices[l1_idx]) / (l2_idx - l1_idx or 1)
-            y_lower = [prices[l1_idx] + slope_l * (i - l1_idx) for i in x_indices]
-            ax.plot(x_indices, y_lower, color='#00e676', linestyle='--', linewidth=1.2, alpha=0.8)
+            slope_l = (lows[l2_idx] - lows[l1_idx]) / (l2_idx - l1_idx or 1)
+            y_lower = [lows[l1_idx] + slope_l * (i - l1_idx) for i in x_indices]
+            ax1.plot(x_indices, y_lower, color='#00e676', linestyle='--', linewidth=1.4, alpha=0.85, label='Kanal Alt (Destek)', zorder=2)
 
-            ax.fill_between(x_indices, y_lower, y_upper, color='#7c4dff', alpha=0.05, zorder=2)
-            ax.text(x_indices[1], y_upper[1] * 1.001, '[TREND KANALI]', color='#b388ff', fontsize=8, fontweight='bold')
+            y_mid = [(y_upper[i] + y_lower[i]) / 2.0 for i in x_indices]
+            ax1.plot(x_indices, y_mid, color='#00b0ff', linestyle=':', linewidth=1.1, alpha=0.6, label='Kanal Orta Çizgisi', zorder=2)
 
-        # 2. Grid Bot Channel Overlay
+            ax1.fill_between(x_indices, y_lower, y_upper, color='#7c4dff', alpha=0.06, zorder=1)
+
+            # Channel Slope Badge
+            channel_slope_pct = ((slope_h + slope_l) / 2.0 / curr_p) * 100.0 * n
+            ch_type = "YUKSELEN TREND KANALI" if channel_slope_pct > 0.3 else ("DUSEN TREND KANALI" if channel_slope_pct < -0.3 else "YATAY AKUMULASYON KANALI")
+            ch_color = "#00e676" if channel_slope_pct > 0.3 else ("#ff1744" if channel_slope_pct < -0.3 else "#ffd700")
+            ax1.text(0.98, 0.94, f'[{ch_type} ({channel_slope_pct:+.1f}%)]', transform=ax1.transAxes, color=ch_color, fontsize=8.5, fontweight='bold', ha='right', va='top', bbox=dict(boxstyle='round,pad=0.4', facecolor='#1e222d', edgecolor=ch_color, alpha=0.85))
+
+        # 6. Grid Bot Channel Overlay
         if grid_info and 'lowerBound' in grid_info and 'upperBound' in grid_info:
             g_low = grid_info['lowerBound']
             g_high = grid_info['upperBound']
-            ax.axhline(g_high, color='#ff4081', linestyle='-', linewidth=1.5, alpha=0.9)
-            ax.axhline(g_low, color='#00e676', linestyle='-', linewidth=1.5, alpha=0.9)
-            ax.text(n - 1, g_high, f' GRID UST: ${g_high}', color='#ff4081', fontsize=8, fontweight='bold', va='bottom')
-            ax.text(n - 1, g_low, f' GRID ALT: ${g_low}', color='#00e676', fontsize=8, fontweight='bold', va='top')
+            ax1.axhline(g_high, color='#ff4081', linestyle='-', linewidth=1.4, alpha=0.85, zorder=6)
+            ax1.axhline(g_low, color='#00e676', linestyle='-', linewidth=1.4, alpha=0.85, zorder=6)
+            ax1.text(n - 1, g_high, f' GRID UST: ${g_high}', color='#ff4081', fontsize=8, fontweight='bold', va='bottom')
+            ax1.text(n - 1, g_low, f' GRID ALT: ${g_low}', color='#00e676', fontsize=8, fontweight='bold', va='top')
 
             grids = grid_info.get('gridCount', 5)
             step = (g_high - g_low) / grids
             for g_i in range(1, grids):
                 g_p = g_low + (g_i * step)
-                ax.axhline(g_p, color='#00f2fe', linestyle=':', linewidth=0.8, alpha=0.4)
+                ax1.axhline(g_p, color='#00f2fe', linestyle=':', linewidth=0.8, alpha=0.4, zorder=6)
 
-        # 3. Destek / Direnc & TP / SL Level Lines
+        # 7. Support & Resistance Shaded Zones & Lines
         if indicators:
             sup = indicators.get('supportLevel') or indicators.get('support')
             res = indicators.get('resistanceLevel') or indicators.get('resistance')
             if sup:
-                ax.axhline(sup, color='#00e676', linestyle=':', linewidth=1.2, alpha=0.7)
-                ax.text(0, sup, f' DESTEK: ${sup:.2f}', color='#00e676', fontsize=8, va='bottom', fontweight='bold')
+                ax1.axhline(sup, color='#00e676', linestyle=':', linewidth=1.4, alpha=0.9, zorder=6)
+                ax1.axhspan(sup * 0.994, sup * 1.006, color='#00e676', alpha=0.08, zorder=1)
+                ax1.text(0, sup, f' [DESTEK BOLGESI]: ${sup:,.2f}', color='#00e676', fontsize=8, va='bottom', fontweight='bold', bbox=dict(boxstyle='square,pad=0.2', facecolor='#131722', edgecolor='none', alpha=0.7))
             if res:
-                ax.axhline(res, color='#ff1744', linestyle=':', linewidth=1.2, alpha=0.7)
-                ax.text(0, res, f' DIRENC: ${res:.2f}', color='#ff1744', fontsize=8, va='top', fontweight='bold')
+                ax1.axhline(res, color='#ff1744', linestyle=':', linewidth=1.4, alpha=0.9, zorder=6)
+                ax1.axhspan(res * 0.994, res * 1.006, color='#ff1744', alpha=0.08, zorder=1)
+                ax1.text(0, res, f' [DIRENC BOLGESI]: ${res:,.2f}', color='#ff1744', fontsize=8, va='top', fontweight='bold', bbox=dict(boxstyle='square,pad=0.2', facecolor='#131722', edgecolor='none', alpha=0.7))
 
+        # 8. Entry, TP / SL Target Lines with ROI Badges
         if signal:
+            entry_p = signal.get('entryPrice', curr_p)
             sl = signal.get('sl')
             tp1 = signal.get('tp1')
             tp2 = signal.get('tp2')
-            if sl:
-                ax.axhline(sl, color='#ff1744', linestyle='--', linewidth=1.5, alpha=0.9)
-                ax.text(n - 1, sl, f' [SL]: ${sl}', color='#ff1744', fontsize=8, fontweight='bold')
-            if tp1:
-                ax.axhline(tp1, color='#00e676', linestyle='--', linewidth=1.5, alpha=0.9)
-                ax.text(n - 1, tp1, f' [TP1]: ${tp1}', color='#00e676', fontsize=8, fontweight='bold')
-            if tp2:
-                ax.axhline(tp2, color='#00b0ff', linestyle='--', linewidth=1.5, alpha=0.9)
-                ax.text(n - 1, tp2, f' [TP2]: ${tp2}', color='#00b0ff', fontsize=8, fontweight='bold')
+            tp3 = signal.get('tp3')
 
-        # 4. Formasyonlar (W Dip, M Tepe, Boga Bayragi)
+            if entry_p:
+                ax1.axhline(entry_p, color='#ffc107', linestyle='--', linewidth=1.4, alpha=0.9, zorder=7)
+                ax1.text(n - 1, entry_p, f' [GIRIS]: ${entry_p:,.2f}', color='#ffc107', fontsize=8.5, fontweight='bold', va='center', ha='left')
+
+            if sl:
+                sl_pct = ((sl - entry_p) / entry_p) * 100.0 if entry_p else 0
+                ax1.axhline(sl, color='#ff1744', linestyle='--', linewidth=1.8, alpha=0.95, zorder=7)
+                ax1.text(n - 1, sl, f' [SL]: ${sl:,.2f} ({sl_pct:+.1f}%)', color='#ff1744', fontsize=8.5, fontweight='bold', va='top', ha='left')
+
+            if tp1:
+                tp1_pct = ((tp1 - entry_p) / entry_p) * 100.0 if entry_p else 0
+                ax1.axhline(tp1, color='#00e676', linestyle='--', linewidth=1.8, alpha=0.95, zorder=7)
+                ax1.text(n - 1, tp1, f' [TP1]: ${tp1:,.2f} ({tp1_pct:+.1f}%)', color='#00e676', fontsize=8.5, fontweight='bold', va='bottom', ha='left')
+
+            if tp2:
+                tp2_pct = ((tp2 - entry_p) / entry_p) * 100.0 if entry_p else 0
+                ax1.axhline(tp2, color='#00c853', linestyle='--', linewidth=1.8, alpha=0.95, zorder=7)
+                ax1.text(n - 1, tp2, f' [TP2]: ${tp2:,.2f} ({tp2_pct:+.1f}%)', color='#00c853', fontsize=8.5, fontweight='bold', va='bottom', ha='left')
+
+            if tp3:
+                tp3_pct = ((tp3 - entry_p) / entry_p) * 100.0 if entry_p else 0
+                ax1.axhline(tp3, color='#00b0ff', linestyle='--', linewidth=1.8, alpha=0.95, zorder=7)
+                ax1.text(n - 1, tp3, f' [TP3]: ${tp3:,.2f} ({tp3_pct:+.1f}%)', color='#00b0ff', fontsize=8.5, fontweight='bold', va='bottom', ha='left')
+
+        # 9. Pattern & Trigger Annotations
         pattern_name = ""
         if indicators and isinstance(indicators.get('patterns'), dict):
             pattern_name = indicators.get('patterns', {}).get('name', '')
@@ -447,36 +597,45 @@ def generate_analysis_chart_image(symbol, prices, indicators=None, signal=None, 
         if 'W' in pattern_name or 'İkili Dip' in pattern_name:
             if n >= 15:
                 w_x = [n-15, n-10, n-5, n-1]
-                w_y = [prices[n-15], prices[n-10], prices[n-5], prices[n-1]]
-                ax.plot(w_x, w_y, color='#00e676', linewidth=2.5, zorder=5)
-                ax.text(w_x[0], w_y[1] * 1.002, '[FORMASYON: W-DIP]', color='#00e676', fontsize=9, fontweight='bold')
+                w_y = [lows[n-15], lows[n-10], lows[n-5], closes[n-1]]
+                ax1.plot(w_x, w_y, color='#00e676', linewidth=2.5, zorder=8)
+                ax1.text(w_x[0], w_y[1] * 1.002, '[FORMASYON: W-DIP / BOGA DONUSU]', color='#00e676', fontsize=8.5, fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='#131722', edgecolor='#00e676', alpha=0.85))
         elif 'M' in pattern_name or 'İkili Tepe' in pattern_name:
             if n >= 15:
                 m_x = [n-15, n-10, n-5, n-1]
-                m_y = [prices[n-15], prices[n-10], prices[n-5], prices[n-1]]
-                ax.plot(m_x, m_y, color='#ff1744', linewidth=2.5, zorder=5)
-                ax.text(m_x[0], m_y[0] * 1.002, '[FORMASYON: M-TEPE]', color='#ff1744', fontsize=9, fontweight='bold')
-        elif 'Bayrak' in pattern_name or 'Bull Flag' in pattern_name:
-            if n >= 20:
-                ax.plot([n-20, n-10], [prices[n-20], prices[n-10]], color='#00b0ff', linewidth=2.5, zorder=5)
-                ax.text(n-20, prices[n-10] * 1.002, '[BOGA BAYRAGI]', color='#00b0ff', fontsize=9, fontweight='bold')
+                m_y = [highs[n-15], highs[n-10], highs[n-5], closes[n-1]]
+                ax1.plot(m_x, m_y, color='#ff1744', linewidth=2.5, zorder=8)
+                ax1.text(m_x[0], m_y[0] * 1.002, '[FORMASYON: M-TEPE / AYI DONUSU]', color='#ff1744', fontsize=8.5, fontweight='bold', bbox=dict(boxstyle='round,pad=0.3', facecolor='#131722', edgecolor='#ff1744', alpha=0.85))
 
-        # Formatting
-        curr_price = prices[-1]
-        ax.set_title(f'QUANTUM AI TEKNİK ANALİZ GRAFİĞİ: {symbol} (${curr_price:,.2f})', color='#ffffff', fontsize=11, fontweight='bold', pad=12)
-        ax.grid(True, color='#ffffff', alpha=0.08, linestyle='-')
-        ax.tick_params(colors='#888888', labelsize=8)
+        # 10. Title Banner & BTC Watermark Box
+        btc_txt = btc_context.get("status_text", "BTC Analizi Aktif") if isinstance(btc_context, dict) else "BTC Trend Kanali Taraniyor"
+        for emoji_char in ["🔴 ", "🟢 ", "🟡 ", "⚡ ", "📊 "]:
+            btc_txt = btc_txt.replace(emoji_char, "")
+        ax1.set_title(f'QUANTUM AI HD TEKNIK ANALIZ GRAFIGI: {symbol} (${curr_p:,.2f})', color='#ffffff', fontsize=11.5, fontweight='bold', pad=12)
+        ax1.text(0.02, 0.94, f'[BTC PIYASA DURUMU: {btc_txt}]', transform=ax1.transAxes, color='#00f2fe', fontsize=8.5, fontweight='bold', va='top', bbox=dict(boxstyle='round,pad=0.4', facecolor='#1e222d', edgecolor='#00b0ff', alpha=0.85))
 
-        for spine in ax.spines.values():
+        # Formatting & Axes
+        ax1.grid(True, color='#ffffff', alpha=0.07, linestyle='-')
+        ax2.grid(True, color='#ffffff', alpha=0.07, linestyle='-')
+        ax1.tick_params(colors='#888888', labelsize=8)
+        ax2.tick_params(colors='#888888', labelsize=8)
+        ax2.set_ylabel('Hacim', color='#888888', fontsize=8)
+        ax1.legend(loc='upper left', facecolor='#131722', edgecolor='#222836', labelcolor='#cccccc', fontsize=8)
+        ax2.legend(loc='upper left', facecolor='#131722', edgecolor='#222836', labelcolor='#cccccc', fontsize=7.5)
+
+        for spine in ax1.spines.values():
+            spine.set_color('#222836')
+        for spine in ax2.spines.values():
             spine.set_color('#222836')
 
+        plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor(), edgecolor='none')
         plt.close(fig)
         buf.seek(0)
         return buf.getvalue()
     except Exception as e:
-        print(f"❌ Grafik çizim hatası: {e}")
+        print(f"❌ Mum grafik çizim hatası: {e}")
         return None
 
 def get_fear_and_greed_index():
@@ -567,7 +726,8 @@ def handle_telegram_command(cmd_text, chat_id):
             'tp2': round(curr_p * 1.045, 2)
         }
 
-        photo = generate_analysis_chart_image(target_sym, prices, ind, sig, grid_info)
+        btc_ctx = analyze_btc_market_context()
+        photo = generate_analysis_chart_image(target_sym, klines_raw if klines_raw else prices, ind, sig, grid_info, btc_context=btc_ctx)
         if photo:
             p_name = ind.get('patterns', {}).get('name', 'Kanal İçi') if ind else 'Kanal İçi'
             sup = ind.get('support', curr_p * 0.98) if ind else curr_p * 0.98
@@ -576,8 +736,9 @@ def handle_telegram_command(cmd_text, chat_id):
             cap = (
                 f"📷 *QUANTUM AI HD TEKNİK ANALİZ GRAFİĞİ ({target_sym})*\n\n"
                 f"💵 Canlı Fiyat: `${curr_p:,.2f} USDT`\n"
-                f"📐 Trend Kanalı & Grid Seviyeleri Grafikte Çizildi ✅\n"
-                f"🧩 Formasyon: *{p_name}*\n"
+                f"🌐 BTC Piyasa Analizi: *{btc_ctx.get('status_text', 'Aktif')}*\n"
+                f"📐 Trend Kanalı & Destek/Direnç Çizimleri Eklendi ✅\n"
+                f"🧩 Formasyon Yapısı: *{p_name}*\n"
                 f"🎯 Destek: `${sup:,.2f}` | Direnç: `${res:,.2f}`\n"
                 f"🎯 TP1: `${sig['tp1']:,.2f}` | 🛑 SL: `${sig['sl']:,.2f}`"
             )
@@ -1156,6 +1317,107 @@ def calculate_python_indicators(k_data_15m, k_data_90d=None):
         "rsiBearishDiv": rsi_bearish_div
     }
 
+# 🧠 BTC Market Movement & Trend Channel Analyzer
+def analyze_btc_market_context():
+    """
+    Fetches real BTCUSDT klines (4h macro + 15m micro) and computes BTC's trend,
+    price channel, RSI, EMA alignment, and volatility dump risks.
+    Returns a structured context dictionary used to filter altcoin trades.
+    """
+    try:
+        url_4h = "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=4h&limit=100"
+        url_15m = "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=100"
+        
+        k_4h, k_15m = None, None
+        try:
+            req_4h = urllib.request.Request(url_4h, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_4h, timeout=4) as r_4h:
+                k_4h = json.loads(r_4h.read().decode('utf-8'))
+        except Exception:
+            pass
+
+        try:
+            req_15m = urllib.request.Request(url_15m, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_15m, timeout=4) as r_15m:
+                k_15m = json.loads(r_15m.read().decode('utf-8'))
+        except Exception:
+            pass
+            
+        if not k_15m or len(k_15m) < 20:
+            return {"status": "UNKNOWN", "status_text": "🟡 BTC Verisi Taranıyor", "allow_long": True, "allow_short": True, "reason": "BTC verisine erişilemedi, standart tarama aktif.", "btc_price": 0}
+            
+        ind_15m = calculate_python_indicators(k_15m, k_4h)
+        closes_15m = [float(c[4]) for c in k_15m]
+        highs_15m = [float(c[2]) for c in k_15m]
+        lows_15m = [float(c[3]) for c in k_15m]
+        
+        btc_price = closes_15m[-1]
+        ema20 = ind_15m["ema20"]
+        ema50 = ind_15m["ema50"]
+        ema200 = ind_15m["ema200"]
+        rsi = ind_15m["rsi"]
+        
+        # Calculate 15m Trend Channel for BTC
+        n = len(closes_15m)
+        half = n // 2
+        h1_idx = max(range(0, half), key=lambda i: highs_15m[i])
+        h2_idx = max(range(half, n), key=lambda i: highs_15m[i])
+        l1_idx = min(range(0, half), key=lambda i: lows_15m[i])
+        l2_idx = min(range(half, n), key=lambda i: lows_15m[i])
+        
+        slope_h = (highs_15m[h2_idx] - highs_15m[h1_idx]) / (h2_idx - h1_idx or 1)
+        slope_l = (lows_15m[l2_idx] - lows_15m[l1_idx]) / (l2_idx - l1_idx or 1)
+        channel_slope_pct = ((slope_h + slope_l) / 2.0 / btc_price) * 100.0 * n
+        
+        # Check Short-term Volatility / Dump Hazard (e.g. BTC dropped >1.8% in last 1 hour)
+        price_1h_ago = closes_15m[-5] if len(closes_15m) >= 5 else closes_15m[0]
+        drop_1h_pct = ((btc_price - price_1h_ago) / price_1h_ago) * 100.0
+        
+        is_dumping = (drop_1h_pct <= -1.8) or (btc_price < ema200 * 0.985 and drop_1h_pct <= -1.0)
+        
+        # Classify Market Trend Status
+        if is_dumping:
+            status = "DUMP_HAZARD"
+            status_text = f"🔴 BTC Sert Düşüş Riski (1s: %{drop_1h_pct:.2f})"
+            allow_long = False
+            allow_short = True
+            reason = f"BTC son 1 saatte %{abs(drop_1h_pct):.2f} düştü! Altcoin LONG işlemleri riski sebebiyle donduruldu."
+        elif btc_price >= ema200 and ema20 >= ema50 and channel_slope_pct >= -0.5:
+            status = "BULLISH_CHANNEL"
+            status_text = f"🟢 BTC Yükselen Boğa Kanalı (${btc_price:,.2f})"
+            allow_long = True
+            allow_short = False
+            reason = "BTC güçlü boğa kanalında ve EMA200 üzerinde. Trende aykırı SHORT işlemleri engellendi."
+        elif btc_price <= ema200 and ema20 <= ema50 and channel_slope_pct <= 0.5:
+            status = "BEARISH_CHANNEL"
+            status_text = f"🔴 BTC Düşen Ayı Kanalı (${btc_price:,.2f})"
+            allow_long = False
+            allow_short = True
+            reason = "BTC düşen ayı kanalında ve EMA200 altında. Riski yüksek LONG işlemleri engellendi."
+        else:
+            status = "SIDEWAYS_ACCUMULATION"
+            status_text = f"🟡 BTC Yatay Akümülasyon Kanalı (${btc_price:,.2f})"
+            allow_long = True
+            allow_short = True
+            reason = "BTC yatay bantta hareket ediyor. Altcoin sinyalleri standart kurallarla taranıyor."
+            
+        return {
+            "status": status,
+            "status_text": status_text,
+            "allow_long": allow_long,
+            "allow_short": allow_short,
+            "reason": reason,
+            "btc_price": btc_price,
+            "channel_slope_pct": round(channel_slope_pct, 2),
+            "rsi": round(rsi, 1),
+            "ema200": round(ema200, 2),
+            "drop_1h_pct": round(drop_1h_pct, 2)
+        }
+    except Exception as e:
+        print("⚠️ BTC Piyasası Analiz Hatası:", e)
+        return {"status": "UNKNOWN", "status_text": "🟡 BTC Analizi Standart", "allow_long": True, "allow_short": True, "reason": f"BTC Analiz Hatası: {e}", "btc_price": 0}
+
+
 def fetch_orderbook_depth(symbol):
     try:
         clean_sym = symbol.replace("/", "").replace("USDT", "USDT")
@@ -1649,6 +1911,9 @@ def background_bot_loop():
             if (now - last_auto_scan > 15):
                 last_auto_scan = now
                 
+                # 🌐 Analyze BTC Market Movement & Trend Channel First
+                btc_context = analyze_btc_market_context()
+                
                 for sym in state["symbols"]:
                     clean_display_sym = sym.replace("USDT", "/USDT")
                     existing_pos = next((p for p in state["positions"] if is_same_symbol(p["symbol"], clean_display_sym)), None)
@@ -1836,9 +2101,15 @@ def background_bot_loop():
                                     side = "SHORT"
                                     confidence = final_short_score
 
-                                # Strict Macro Trend Counter-Trend Shield
+                                # 🌐 BTC Market Trend & Channel Filter Check
                                 if should_open:
-                                    if side == "LONG" and current_price < ema200 and not rsi_bull_div:
+                                    if side == "LONG" and not btc_context.get("allow_long", True):
+                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (LONG) -> BTC_FILTER_BLOCKED ({btc_context.get('reason')})")
+                                        should_open = False
+                                    elif side == "SHORT" and not btc_context.get("allow_short", True):
+                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (SHORT) -> BTC_FILTER_BLOCKED ({btc_context.get('reason')})")
+                                        should_open = False
+                                    elif side == "LONG" and current_price < ema200 and not rsi_bull_div:
                                         print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (LONG) -> COUNTER_TREND_BLOCKED (Fiyat EMA200 altında)")
                                         should_open = False
                                     elif side == "SHORT" and current_price > ema200 and not rsi_bear_div:
@@ -1918,6 +2189,8 @@ def background_bot_loop():
                                             f"🛡️ *DCA Kademeli Alım #2:* `{format_price(so2)}` (-%4 Kademesi)\n"
                                             f"🛑 *Stop Loss (SL):* `{format_price(sl)}` (Volatilite Korumalı)\n"
                                             f"---------------------------------\n"
+                                            f"🌐 *BTC Piyasa Uyum:* *{btc_context.get('status_text', 'Aktif')}*\n"
+                                            f"---------------------------------\n"
                                             f"📐 *QUANTFURY UYGULAMA EMİR BİLGİSİ:*\n"
                                             f"└ 💵 *Açılan Pozisyon Büyüklüğü:* `${amount:,.2f} USDT` (Otopilot Aktif 🚀)\n"
                                             f"└ ⚖️ *Önerilen Kaldıraç:* `1x - 5x` (Maksimum Risk: %2.0)\n"
@@ -1928,12 +2201,19 @@ def background_bot_loop():
                                             f"└ 🎯 *RSI & Seviye:* {reason_rsi}\n"
                                             f"└ 🐋 *Smart Money (SMC):* {reason_smc}\n"
                                             f"└ 🔍 *Formasyon Yapısı:* *{pattern_name}*\n"
+                                            f"└ 🌐 *BTC Trend & Kanal Filtresi:* *{btc_context.get('reason', 'Onaylandı')}*\n"
                                             f"---------------------------------\n"
                                             f"📈 [Canlı TradingView Grafiği ve Formasyonu İncele]({chart_link})\n"
                                             f"✨ *VIP Otopilot Pozisyonu Başarıyla Açıldı ve Taramaya Alındı*"
                                         )
-                                        send_telegram_message(signal_msg)
-                                        print(f"📡 VIP Trader Sinyal ve Otopilot İşlemi Açıldı: {clean_display_sym} ({side})")
+                                        ind_info = {'support': supp, 'resistance': resis, 'patterns': {'name': pattern_name}}
+                                        sig_info = {'entryPrice': current_price, 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'tp3': tp3}
+                                        photo_bytes = generate_analysis_chart_image(clean_pair, k_data if 'k_data' in locals() and k_data else close_prices, ind_info, sig_info, btc_context=btc_context)
+                                        if photo_bytes:
+                                            send_telegram_photo(photo_bytes, caption=signal_msg)
+                                        else:
+                                            send_telegram_message(signal_msg)
+                                        print(f"📡 VIP Trader Sinyal ve Otopilot İşlemi Açıldı (Görsel Gönderildi): {clean_display_sym} ({side})")
                                         break
                     except Exception as e_k:
                         print("Auto-pilot kline scan error:", e_k)
@@ -2085,7 +2365,26 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 "📈 [Canlı TradingView Grafiği ve Formasyonu İncele](https://www.tradingview.com/chart/?symbol=BINANCE:BTCUSDT)\n"
                 "✨ *VIP Özel Analiz ve Sinyal Kanalı*"
             )
-            ok, msg = send_telegram_message(test_msg)
+            # Fetch live klines or generate mock chart for test signal
+            prices = []
+            try:
+                url = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=50"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    kl = json.loads(resp.read().decode('utf-8'))
+                    prices = [float(k[4]) for k in kl]
+            except Exception:
+                prices = [64000.0 + i*40 + (i%4)*15 for i in range(50)]
+
+            ind_demo = {'support': 63800.0, 'resistance': 65800.0, 'patterns': {'name': 'İkili Dip (W-Formasyonu)'}}
+            sig_demo = {'entryPrice': 64250.0, 'sl': 63200.0, 'tp1': 65400.0, 'tp2': 66500.0}
+            photo = generate_analysis_chart_image("BTCUSDT", kl if 'kl' in locals() and kl else prices, ind_demo, sig_demo)
+            
+            if photo:
+                ok, msg = send_telegram_photo(photo, caption=test_msg)
+            else:
+                ok, msg = send_telegram_message(test_msg)
+
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')

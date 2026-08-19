@@ -1,12 +1,12 @@
 {
-  "balance": 1450.0,
+  "balance": 404.20000000000005,
   "positions": [],
   "history": [],
   "grid_bots": [
     {
       "id": "GRID-123487",
       "symbol": "BTC/USDT",
-      "currentPrice": 64347.38,
+      "currentPrice": 64332.0,
       "lowerBound": 63315.8,
       "upperBound": 65353.81,
       "gridCount": 6,
@@ -14,8 +14,8 @@
       "profitPerGridPct": 0.6,
       "stopLoss": 61732.9,
       "allocatedAmount": 350.0,
-      "realizedPnl": 0.0,
-      "completedStepsCount": 0,
+      "realizedPnl": 2.1,
+      "completedStepsCount": 1,
       "gridSteps": [
         {
           "stepIndex": 0,
@@ -39,7 +39,7 @@
           "stepIndex": 3,
           "price": 64334.81,
           "type": "BUY",
-          "filled": false
+          "filled": true
         },
         {
           "stepIndex": 4,
@@ -65,7 +65,7 @@
     {
       "id": "GRID-123494",
       "symbol": "ETH/USDT",
-      "currentPrice": 1918.81,
+      "currentPrice": 1920.35,
       "lowerBound": 1886.27,
       "upperBound": 1949.32,
       "gridCount": 6,
@@ -124,7 +124,7 @@
     {
       "id": "GRID-123499",
       "symbol": "SOL/USDT",
-      "currentPrice": 77.07,
+      "currentPrice": 77.05,
       "lowerBound": 75.845,
       "upperBound": 78.2565,
       "gridCount": 6,
@@ -132,8 +132,8 @@
       "profitPerGridPct": 0.6,
       "stopLoss": 73.9489,
       "allocatedAmount": 350.0,
-      "realizedPnl": 0.0,
-      "completedStepsCount": 0,
+      "realizedPnl": 2.1,
+      "completedStepsCount": 1,
       "gridSteps": [
         {
           "stepIndex": 0,
@@ -157,7 +157,7 @@
           "stepIndex": 3,
           "price": 77.0507,
           "type": "BUY",
-          "filled": false
+          "filled": true
         },
         {
           "stepIndex": 4,
@@ -769,6 +769,183 @@
         }
       ],
       "startTime": "10:13:24"
+    },
+    {
+      "id": "GRID-123631",
+      "symbol": "ATOM/USDT",
+      "currentPrice": 1.409,
+      "lowerBound": 1.3721,
+      "upperBound": 1.4484,
+      "gridCount": 6,
+      "stepSize": 0.0127,
+      "profitPerGridPct": 0.9,
+      "stopLoss": 1.3378,
+      "allocatedAmount": 350.0,
+      "realizedPnl": 0.0,
+      "completedStepsCount": 0,
+      "gridSteps": [
+        {
+          "stepIndex": 0,
+          "price": 1.3721,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 1,
+          "price": 1.3848,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 2,
+          "price": 1.3975,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 3,
+          "price": 1.4102,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 4,
+          "price": 1.4229,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 5,
+          "price": 1.4356,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 6,
+          "price": 1.4483,
+          "type": "SELL",
+          "filled": false
+        }
+      ],
+      "startTime": "10:13:51"
+    },
+    {
+      "id": "GRID-123652",
+      "symbol": "FIL/USDT",
+      "currentPrice": 0.6376,
+      "lowerBound": 0.60572,
+      "upperBound": 0.66948,
+      "gridCount": 6,
+      "stepSize": 0.010627,
+      "profitPerGridPct": 1.67,
+      "stopLoss": 0.590577,
+      "allocatedAmount": 350.0,
+      "realizedPnl": 0.0,
+      "completedStepsCount": 0,
+      "gridSteps": [
+        {
+          "stepIndex": 0,
+          "price": 0.60572,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 1,
+          "price": 0.616347,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 2,
+          "price": 0.626974,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 3,
+          "price": 0.637601,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 4,
+          "price": 0.648228,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 5,
+          "price": 0.658855,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 6,
+          "price": 0.669482,
+          "type": "SELL",
+          "filled": false
+        }
+      ],
+      "startTime": "10:14:12"
+    },
+    {
+      "id": "GRID-123661",
+      "symbol": "SAND/USDT",
+      "currentPrice": 0.03857,
+      "lowerBound": 0.037883,
+      "upperBound": 0.039839,
+      "gridCount": 6,
+      "stepSize": 0.000326,
+      "profitPerGridPct": 0.85,
+      "stopLoss": 0.036936,
+      "allocatedAmount": 350.0,
+      "realizedPnl": 0.0,
+      "completedStepsCount": 0,
+      "gridSteps": [
+        {
+          "stepIndex": 0,
+          "price": 0.037883,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 1,
+          "price": 0.038209,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 2,
+          "price": 0.038535,
+          "type": "BUY",
+          "filled": false
+        },
+        {
+          "stepIndex": 3,
+          "price": 0.038861,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 4,
+          "price": 0.039187,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 5,
+          "price": 0.039513,
+          "type": "SELL",
+          "filled": false
+        },
+        {
+          "stepIndex": 6,
+          "price": 0.039839,
+          "type": "SELL",
+          "filled": false
+        }
+      ],
+      "startTime": "10:14:21"
     }
   ],
   "auto_pilot": true
