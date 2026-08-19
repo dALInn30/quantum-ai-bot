@@ -26,6 +26,7 @@ state = {
     "balance": 6000.0,
     "positions": [],
     "history": [],
+    "grid_bots": [],
     "auto_pilot": True,
     "symbols": [
         "BTCUSDT", "ETHUSDT", "SOLUSDT", "ZECUSDT", "XLMUSDT", 
@@ -143,6 +144,7 @@ def save_db():
                 "balance": state["balance"],
                 "positions": state["positions"],
                 "history": state["history"],
+                "grid_bots": state.get("grid_bots", []),
                 "auto_pilot": state["auto_pilot"]
             }, f, indent=2)
     except Exception as e:
@@ -165,8 +167,8 @@ def save_telegram_config():
 MAIN_REPLY_KEYBOARD = {
     "keyboard": [
         [{"text": "📊 Açık Pozisyonlar"}, {"text": "📜 Kapanan İşlemler"}],
-        [{"text": "💰 Toplam Kar/Zarar"}, {"text": "🤖 Bot Durumu"}],
-        [{"text": "🧹 Tüm Pozisyonları Kapat"}]
+        [{"text": "💰 Toplam Kar/Zarar"}, {"text": "🌐 AI Grid Stratejileri"}],
+        [{"text": "🤖 Bot Durumu"}, {"text": "🧹 Tüm Pozisyonları Kapat"}]
     ],
     "resize_keyboard": True,
     "is_persistent": True
@@ -180,6 +182,9 @@ INLINE_CHANNEL_KEYBOARD = {
         ],
         [
             {"text": "💰 Kar/Zarar Özeti", "callback_data": "cmd_pnl"},
+            {"text": "🌐 Grid Stratejileri", "callback_data": "cmd_grid"}
+        ],
+        [
             {"text": "🤖 YZ Canlı Durumu", "callback_data": "cmd_status"}
         ]
     ]
@@ -293,6 +298,7 @@ def set_telegram_commands():
             {"command": "pozisyonlar", "description": "📊 Açık pozisyonlar ve anlık PnL"},
             {"command": "gecmis", "description": "📜 Son 3 gün içinde kapanmış işlem geçmişi"},
             {"command": "pnl", "description": "💰 Toplam kâr/zarar ve portföy özeti"},
+            {"command": "grid", "description": "🌐 Aktif AI Grid Stratejileri ve Kademeler"},
             {"command": "haftalik", "description": "📊 7 günlük haftalık performans karnesi"},
             {"command": "backtest", "description": "🧪 90 günlük geriye dönük performans simülatörü"},
             {"command": "saglik", "description": "🛡️ Sistem sağlık ve API bağlantı kontrolü"},
@@ -410,6 +416,33 @@ def handle_telegram_command(cmd_text, chat_id):
             f"• Kazanma Oranı (Win Rate): *%{win_rate:.1f}*"
         )
         send_telegram_message(msg, target_chat_id=chat_id)
+
+    elif "grid" in cmd or cmd in ["/grid", "grid", "ai grid stratejileri"]:
+        grid_bots = state.get("grid_bots", [])
+        if not grid_bots:
+            send_telegram_message("ℹ️ *Şu anda aktif AI Grid Stratejisi bulunmamaktadır.*\n\nBot, yatay konsolidasyon piyasalarında (ADX < 25) otomatik Spot/Futures Grid stratejisi başlatmaktadır.", target_chat_id=chat_id)
+            return
+        
+        lines = [f"🌐 *AKTİF YAZILIM GRID STRATEJİLERİ ({len(grid_bots)})*", "---------------------------------"]
+        for g in grid_bots:
+            sym = g.get("symbol", "N/A")
+            allocated = g.get("allocatedAmount", 0)
+            low = format_price(g.get("lowerBound", 0))
+            high = format_price(g.get("upperBound", 0))
+            pnl = g.get("realizedPnl", 0)
+            grid_cnt = g.get("gridCount", 6)
+            profit_step = g.get("profitPerGridPct", 1.2)
+            
+            pnl_icon = "🟢" if pnl >= 0 else "🔴"
+            lines.append(
+                f"• *{sym}* (AI Grid Bot)\n"
+                f"  └ Aralık: `{low}` ↔ `{high}`\n"
+                f"  └ Kademe Sayısı: `{grid_cnt}` | Kâr/Kademe: `%{profit_step:.2f}`\n"
+                f"  └ Ayrılan Bakiye: `${allocated:,.2f} USDT`\n"
+                f"  └ Gerçekleşen Net PnL: {pnl_icon} *${pnl:+.2f} USDT*"
+            )
+            lines.append("---------------------------------")
+        send_telegram_message("\n".join(lines), target_chat_id=chat_id)
 
     elif "haftalık" in cmd or "haftalik" in cmd or cmd in ["/haftalik", "/haftalık"]:
         history = state.get("history", [])
@@ -617,6 +650,8 @@ def telegram_listener_loop():
                                     handle_telegram_command("gecmis", cb_chat_id)
                                 elif cb_data == "cmd_pnl":
                                     handle_telegram_command("pnl", cb_chat_id)
+                                elif cb_data == "cmd_grid":
+                                    handle_telegram_command("grid", cb_chat_id)
                                 elif cb_data == "cmd_status":
                                     handle_telegram_command("durum", cb_chat_id)
         except urllib.error.HTTPError as e:
@@ -915,8 +950,8 @@ def check_hard_eligibility(long_score, short_score, current_price, supp, resis, 
     risk_dist = abs(current_price - sl)
     reward_dist = abs(tp1 - current_price)
     rr_ratio = (reward_dist / risk_dist) if risk_dist > 0 else 0.0
-    if rr_ratio < 1.25:
-        return False, f"POOR_RISK_REWARD (Risk/Ödül Oranı Yetersiz: 1:{rr_ratio:.2f} < 1:1.25)"
+    if rr_ratio < 1.80:
+        return False, f"POOR_RISK_REWARD (Risk/Ödül Oranı Yetersiz: 1:{rr_ratio:.2f} < 1:1.80)"
 
     if long_score > short_score:
         if supp > 0 and ((current_price - supp) / current_price) > 0.04:
@@ -945,13 +980,13 @@ def calc_tp_sl(price, side, supp, resis, atr=None, adx=22.0):
             sl = max_allowed_sl
 
         risk_dist = price - sl
-        raw_tp1 = price + risk_dist * 1.55
-        if resis > price and resis < raw_tp1 and (resis - price) >= risk_dist * 1.3:
+        raw_tp1 = price + risk_dist * 1.85
+        if resis > price and resis < raw_tp1 and (resis - price) >= risk_dist * 1.5:
             tp1 = round(resis * 0.998, decimals)
         else:
             tp1 = round(raw_tp1, decimals)
 
-        tp2 = round(max(resis * 0.998 if resis > price else price + risk_dist * 2.2, price + risk_dist * 2.0), decimals)
+        tp2 = round(max(resis * 0.998 if resis > price else price + risk_dist * 2.5, price + risk_dist * 2.2), decimals)
         tp3 = round(price + risk_dist * tp3_mult, decimals)
 
         # DCA Safety Order Levels (-2% ve -4% Kademeli Alım)
@@ -966,13 +1001,13 @@ def calc_tp_sl(price, side, supp, resis, atr=None, adx=22.0):
             sl = min_allowed_sl
 
         risk_dist = sl - price
-        raw_tp1 = price - risk_dist * 1.55
-        if supp < price and supp > raw_tp1 and (price - supp) >= risk_dist * 1.3:
+        raw_tp1 = price - risk_dist * 1.85
+        if supp < price and supp > raw_tp1 and (price - supp) >= risk_dist * 1.5:
             tp1 = round(supp * 1.002, decimals)
         else:
             tp1 = round(raw_tp1, decimals)
 
-        tp2 = round(min(supp * 1.002 if supp < price else price - risk_dist * 2.2, price - risk_dist * 2.0), decimals)
+        tp2 = round(min(supp * 1.002 if supp < price else price - risk_dist * 2.5, price - risk_dist * 2.2), decimals)
         tp3 = round(price - risk_dist * tp3_mult, decimals)
 
         # DCA Safety Order Levels (+2% ve +4% Kademeli Ek Satış)
@@ -982,20 +1017,59 @@ def calc_tp_sl(price, side, supp, resis, atr=None, adx=22.0):
     return tp1, tp2, tp3, sl, so1, so2
 
 def calc_dynamic_position_size(price, atr, balance):
-    # Volatiliteye ve Hafta sonu durumuna göre Kelly Risk Sizing ($350 - $750 arası esnek büyüklük)
+    # Volatiliteye ve Hafta sonu durumuna göre Kelly Risk Sizing (%4 Portföy Riski)
     is_weekend = time.strftime("%w") in ["0", "6"]
     volatility_pct = (atr / price) * 100.0 if price > 0 else 1.5
-    base_size = balance * 0.10 # Base 10% ($600 for $6000 balance)
+    base_size = balance * 0.04 # Base %4 ($240 for $6000 balance)
     
     if is_weekend:
-        base_size *= 0.70 # Hafta sonu risk düşürme ($420)
+        base_size *= 0.80 # Hafta sonu risk düşürme ($192)
         
     if volatility_pct > 3.0:
-        return round(max(300.0, base_size * 0.7), 2) # Yüksek volatilitede risk düşür
+        return round(max(150.0, base_size * 0.75), 2) # Yüksek volatilitede risk düşür
     elif volatility_pct < 1.2:
-        return round(min(balance, base_size * 1.25), 2) # Düşük volatilitede büyüklük artır
+        return round(min(balance * 0.06, base_size * 1.2), 2) # Düşük volatilitede büyüklük artır
     else:
         return round(base_size, 2)
+
+def calculate_grid_parameters(symbol, price, supp, resis, atr=None):
+    decimals = 2 if price >= 1000 else (4 if price >= 1 else 6)
+    atr_val = atr if (atr and atr > 0) else (price * 0.015)
+    
+    lower_bound = round(max(supp * 0.985, price * 0.95), decimals) if supp > 0 else round(price * 0.95, decimals)
+    upper_bound = round(min(resis * 1.015, price * 1.05), decimals) if resis > 0 else round(price * 1.05, decimals)
+    
+    grid_count = 6
+    step_size = round((upper_bound - lower_bound) / grid_count, decimals)
+    profit_per_grid_pct = round(((step_size / price) * 100.0), 2)
+    stop_loss = round(lower_bound * 0.975, decimals)
+    
+    grid_steps = []
+    for i in range(grid_count + 1):
+        step_price = round(lower_bound + (i * step_size), decimals)
+        grid_steps.append({
+            "stepIndex": i,
+            "price": step_price,
+            "type": "BUY" if step_price <= price else "SELL",
+            "filled": False
+        })
+        
+    return {
+        "id": "GRID-" + str(int(time.time()))[-6:],
+        "symbol": symbol,
+        "currentPrice": price,
+        "lowerBound": lower_bound,
+        "upperBound": upper_bound,
+        "gridCount": grid_count,
+        "stepSize": step_size,
+        "profitPerGridPct": max(0.6, profit_per_grid_pct),
+        "stopLoss": stop_loss,
+        "allocatedAmount": 350.0,
+        "realizedPnl": 0.0,
+        "completedStepsCount": 0,
+        "gridSteps": grid_steps,
+        "startTime": time.strftime("%H:%M:%S")
+    }
 
 def run_backtest_simulation():
     total_trades = 0
@@ -1016,21 +1090,24 @@ def run_backtest_simulation():
                     highs = [float(c[2]) for c in k_data]
                     lows = [float(c[3]) for c in k_data]
 
-                    for i in range(50, len(k_data)-5, 6):
+                    for i in range(50, len(k_data)-5, 8):
                         c_price = closes[i]
-                        total_trades += 1
-                        future_high = max(highs[i+1:i+6])
-                        future_low = min(lows[i+1:i+6])
-                        if future_high >= c_price * 1.022:
-                            wins += 1
-                            pnl = 600.0 * 0.022
-                            total_pnl += pnl
-                            symbol_stats[clean_sym] = symbol_stats.get(clean_sym, 0) + pnl
-                        else:
-                            losses += 1
-                            pnl = -600.0 * 0.018
-                            total_pnl += pnl
-                            symbol_stats[clean_sym] = symbol_stats.get(clean_sym, 0) + pnl
+                        sma50 = sum(closes[i-50:i]) / 50.0
+                        # Filter counter-trend: only trade aligned with 50-period trend
+                        if c_price > sma50:
+                            total_trades += 1
+                            future_high = max(highs[i+1:i+6])
+                            future_low = min(lows[i+1:i+6])
+                            if future_high >= c_price * 1.026: # Target 1:1.85 R:R
+                                wins += 1
+                                pnl = 240.0 * 0.026
+                                total_pnl += pnl
+                                symbol_stats[clean_sym] = symbol_stats.get(clean_sym, 0) + pnl
+                            elif future_low <= c_price * 0.986:
+                                losses += 1
+                                pnl = -240.0 * 0.014
+                                total_pnl += pnl
+                                symbol_stats[clean_sym] = symbol_stats.get(clean_sym, 0) + pnl
         except Exception:
             pass
 
@@ -1096,32 +1173,13 @@ def background_bot_loop():
                     pos["pnl"] = (pos["entryPrice"] - mark_price) * pos["size"]
                     pos["pnlPercent"] = ((pos["entryPrice"] - mark_price) / pos["entryPrice"]) * 100
 
-                # ⏰ SMART CONDITIONAL TIME EXIT (TSİ 23:30 Gece Kapanışı) veya MAX DURATION EXIT (8 Saat Sınırı)
+                # ⏰ SMART CONDITIONAL DURATION EXIT (Sadece 24 Saat Sınırını Aşan ve Momentum Kaybeden İşlemler)
                 close_needed = False
                 close_reason = ""
                 
-                if (is_time_exit_hour or open_duration_hours >= 8.0):
-                    reason_name = "TIME_EXIT (23:30 Gece Kapanışı)" if is_time_exit_hour else "MAX_DURATION_EXIT (8 Saat Sınırı)"
-                    
-                    if pos["pnlPercent"] >= 0.8:
-                        # 🚀 İŞLEM KÂRDA! Kapatılmaz, Stop-Loss kâr kilitleme seviyesine çekilerek hedefe koşturulur!
-                        decimals = 2 if pos["entryPrice"] >= 1000 else (4 if pos["entryPrice"] >= 1 else 6)
-                        if pos["side"] == "LONG":
-                            new_lock_sl = round(pos["entryPrice"] * 1.004, decimals)
-                            if new_lock_sl > pos.get("sl", 0):
-                                pos["sl"] = new_lock_sl
-                                save_db()
-                                send_telegram_message(f"🧠 *AKILLI ZAMAN YÖNETİMİ:* {pos['symbol']} işlemi kârda (*+{pos['pnlPercent']:.2f}%*) olduğu için kapatılmadı. Stop Loss Kâr Kilitleme seviyesine (`{format_price(new_lock_sl)}`) çekildi! 🚀")
-                        else:
-                            new_lock_sl = round(pos["entryPrice"] * 0.996, decimals)
-                            if pos.get("sl", 999999) > new_lock_sl:
-                                pos["sl"] = new_lock_sl
-                                save_db()
-                                send_telegram_message(f"🧠 *AKILLI ZAMAN YÖNETİMİ:* {pos['symbol']} işlemi kârda (*+{pos['pnlPercent']:.2f}%*) olduğu için kapatılmadı. Stop Loss Kâr Kilitleme seviyesine (`{format_price(new_lock_sl)}`) çekildi! 🚀")
-                    else:
-                        # Zararda veya Nötr -> Gece riskine ve ölü beklemeye girmemek için kapatılır
-                        close_needed = True
-                        close_reason = reason_name
+                if open_duration_hours >= 24.0 and pos["pnlPercent"] < -1.0:
+                    close_needed = True
+                    close_reason = "MAX_DURATION_EXIT (24 Saat Momentum Kaybı)"
 
                 if close_needed:
                     return_amount = (pos["entryPrice"] * pos["size"]) + pos["pnl"]
@@ -1264,6 +1322,63 @@ def background_bot_loop():
             
             state["positions"] = positions_to_keep
 
+            # 2b. Check & Update Active Grid Trading Bots
+            active_grids_to_keep = []
+            for grid in state.get("grid_bots", []):
+                sym_clean = grid["symbol"].replace("/", "")
+                m_price = state["ticker_data"].get(sym_clean, {}).get("price", grid["currentPrice"])
+                grid["currentPrice"] = m_price
+                
+                # Check Grid Stop Loss
+                if m_price <= grid["stopLoss"]:
+                    pnl_loss = -grid["allocatedAmount"] * 0.03
+                    state["balance"] += (grid["allocatedAmount"] + pnl_loss)
+                    hist_entry = {
+                        "id": grid["id"],
+                        "symbol": grid["symbol"],
+                        "side": "GRID",
+                        "entryPrice": grid["lowerBound"],
+                        "closePrice": m_price,
+                        "pnl": round(pnl_loss, 2),
+                        "pnlPercent": -3.0,
+                        "closeReason": "🛑 GRID STOP LOSS TETİKLENDİ",
+                        "closeTime": time.strftime("%H:%M:%S")
+                    }
+                    state["history"].insert(0, hist_entry)
+                    save_db()
+                    send_telegram_message(
+                        f"🛑 *AI GRID STRATEJİSİ STOP OLDU!*\n"
+                        f"---------------------------------\n"
+                        f"• Varlık: *{grid['symbol']}*\n"
+                        f"• Kapanış Fiyatı: `{format_price(m_price)}` (Stop Loss: `{format_price(grid['stopLoss'])}`)\n"
+                        f"• Kar/Zarar: *${pnl_loss:+.2f} USDT*\n"
+                    )
+                    continue
+
+                # Check Grid Step Execution (Buy Low / Sell High)
+                for step in grid.get("gridSteps", []):
+                    if not step.get("filled", False):
+                        if step["type"] == "BUY" and m_price <= step["price"]:
+                            step["filled"] = True
+                            grid["completedStepsCount"] = grid.get("completedStepsCount", 0) + 1
+                            step_pnl = round(grid["allocatedAmount"] * (grid.get("profitPerGridPct", 1.2) / 100.0), 2)
+                            grid["realizedPnl"] = round(grid.get("realizedPnl", 0.0) + step_pnl, 2)
+                            state["balance"] += step_pnl
+                            save_db()
+                            print(f"🌐 Grid Kademe Başarıyla Tamamlandı: {grid['symbol']} @ {step['price']} (+${step_pnl})")
+                        elif step["type"] == "SELL" and m_price >= step["price"]:
+                            step["filled"] = True
+                            grid["completedStepsCount"] = grid.get("completedStepsCount", 0) + 1
+                            step_pnl = round(grid["allocatedAmount"] * (grid.get("profitPerGridPct", 1.2) / 100.0), 2)
+                            grid["realizedPnl"] = round(grid.get("realizedPnl", 0.0) + step_pnl, 2)
+                            state["balance"] += step_pnl
+                            save_db()
+                            print(f"🌐 Grid Kademe Başarıyla Tamamlandı: {grid['symbol']} @ {step['price']} (+${step_pnl})")
+                
+                active_grids_to_keep.append(grid)
+            
+            state["grid_bots"] = active_grids_to_keep
+
             # 3. 🧠 24/7 MARKET SCANNING & TELEGRAM SIGNAL BROADCAST ENGINE
             now = time.time()
             if (now - last_auto_scan > 15):
@@ -1316,48 +1431,81 @@ def background_bot_loop():
                                 vol_ratio = ind.get("volRatio", 1.0)
                                 candle_green = ind.get("candleGreen", True)
 
+                                rsi_bull_div = ind.get("rsiBullishDiv", False)
+                                rsi_bear_div = ind.get("rsiBearishDiv", False)
+
                                 # 🎯 ULTRA-HIGH WIN RATE (%90+) Multi-Confluence Scoring Engine
+                                is_macro_bull = (current_price >= ema200 and ema20 >= ema50)
+                                is_macro_bear = (current_price <= ema200 and ema20 <= ema50)
+
                                 long_score = 0
-                                if current_price >= ema200 and ema20 >= ema50:
-                                    long_score += 35 # Strong Bullish Trend Confluence
-                                elif current_price >= ema200 or ema20 >= ema50:
+                                if is_macro_bull:
+                                    long_score += 40 # Strong Macro Bullish Trend Confluence
+                                elif current_price >= ema200:
                                     long_score += 20
-                                    
-                                if rsi <= rsi_long_limit or (35 <= rsi <= 46 and current_price >= ema20):
-                                    long_score += 30 # RSI Rebound
+                                else:
+                                    long_score -= 35 # Heavy Counter-Trend Penalty (Under EMA200)
+
+                                if rsi <= rsi_long_limit or (35 <= rsi <= 44 and current_price >= ema20):
+                                    long_score += 25
                                 if macd_hist > 0 and macd_line > signal_line:
-                                    long_score += 25 # MACD Bullish Momentum
+                                    long_score += 25
                                 if current_price <= supp * 1.015:
-                                    long_score += 10 # Support Bounce
+                                    long_score += 10
                                 if vol_ratio >= 1.1:
-                                    long_score += 10 # Hacim Genişlemesi Teyidi
+                                    long_score += 10
                                 if candle_green:
-                                    long_score += 5 # Yeşil Mum Gövde Teyidi
+                                    long_score += 5
                                 if macro_bull_accum:
-                                    long_score += 15 # 90 Günlük Kurumsal Akümülasyon Bonusu
-                                if current_price < ema200:
-                                    long_score -= 15 # Makro Trend Karşıtı Cezalandırma
+                                    long_score += 15
 
                                 short_score = 0
-                                if current_price <= ema200 and ema20 <= ema50:
-                                    short_score += 35 # Strong Bearish Trend Confluence
-                                elif current_price <= ema200 or ema20 <= ema50:
+                                if is_macro_bear:
+                                    short_score += 40 # Strong Macro Bearish Trend Confluence
+                                elif current_price <= ema200:
                                     short_score += 20
-                                    
-                                if rsi >= rsi_short_limit or (54 <= rsi <= 65 and current_price <= ema20):
-                                    short_score += 30 # RSI Rejection
+                                else:
+                                    short_score -= 35 # Heavy Counter-Trend Penalty (Above EMA200)
+
+                                if rsi >= rsi_short_limit or (56 <= rsi <= 65 and current_price <= ema20):
+                                    short_score += 25
                                 if macd_hist < 0 and macd_line < signal_line:
-                                    short_score += 25 # MACD Bearish Momentum
+                                    short_score += 25
                                 if current_price >= resis * 0.985:
-                                    short_score += 10 # Resistance Rejection
+                                    short_score += 10
                                 if vol_ratio >= 1.1:
-                                    short_score += 10 # Hacim Genişlemesi Teyidi
+                                    short_score += 10
                                 if not candle_green:
-                                    short_score += 5 # Kırmızı Mum Gövde Teyidi
+                                    short_score += 5
                                 if not macro_bull_accum:
-                                    short_score += 15 # 90 Günlük Kurumsal Dağıtım Bonusu
-                                if current_price > ema200:
-                                    short_score -= 15 # Makro Trend Karşıtı Cezalandırma
+                                    short_score += 15
+
+                                # 🌐 AI Grid Trading Strategy Trigger (Range-Bound / ADX < 25)
+                                if (ind.get("regimeMode") == "RANGE_BOUND" or ind.get("adx", 22.0) < 25.0) and not any(is_same_symbol(g["symbol"], clean_display_sym) for g in state.get("grid_bots", [])):
+                                    grid_params = calculate_grid_parameters(clean_display_sym, current_price, supp, resis, atr)
+                                    cb_until = state.get("circuit_breaker_until", 0)
+                                    last_bc_time = signal_broadcast_cooldowns.get(clean_display_sym, 0)
+                                    if state["auto_pilot"] and (time.time() >= cb_until) and state["balance"] >= 400 and (now - last_bc_time) > 3600:
+                                        state["balance"] -= grid_params["allocatedAmount"]
+                                        state.get("grid_bots", []).append(grid_params)
+                                        signal_broadcast_cooldowns[clean_display_sym] = now
+                                        global_last_signal_time = now
+                                        save_db()
+                                        grid_msg = (
+                                            f"🌐 *VIP AI GRID STRATEJİSİ BAŞLATILDI* (Spot/Futures Grid)\n"
+                                            f"---------------------------------\n"
+                                            f"🎯 *Varlık:* *{clean_display_sym}* (Yatay Piyasa Akümülasyonu 📊)\n"
+                                            f"📍 *Mevcut Fiyat:* `{format_price(current_price)}` \n"
+                                            f"📉 *Grid Tabanı (Support):* `{format_price(grid_params['lowerBound'])}` \n"
+                                            f"📈 *Grid Tavanı (Resistance):* `{format_price(grid_params['upperBound'])}` \n"
+                                            f"📐 *Kademe Sayısı:* `{grid_params['gridCount']} Kademe` | Kâr/Kademe: `%{grid_params['profitPerGridPct']:.2f}`\n"
+                                            f"🛡️ *Grid Stop-Loss:* `{format_price(grid_params['stopLoss'])}` (Kanal Altı)\n"
+                                            f"💵 *Ayrılan Bakiye:* `${grid_params['allocatedAmount']:,.2f} USDT`\n"
+                                            f"---------------------------------\n"
+                                            f"✨ *Quantum AI Otopilot Otomatik Kademe Alım-Satımı Etkinleştirdi*"
+                                        )
+                                        send_telegram_message(grid_msg)
+                                        print(f"🌐 VIP AI Grid Stratejisi Başlatıldı: {clean_display_sym}")
 
                                 # 🛡️ FORMASYON BOZULMA & POZİSYON KORUMA KONTROLÜ (Skor >= 90 Eşiği)
                                 if existing_pos:
@@ -1401,28 +1549,18 @@ def background_bot_loop():
                                         print(f"🛑 Formasyon Bozuldu, Pozisyon Kapatıldı: {clean_display_sym} ({existing_pos['side']})")
                                         existing_pos = None
 
-                                if long_score >= 90:
-                                    should_open = True
-                                    side = "LONG"
-                                    confidence = min(99, long_score)
-                                elif short_score >= 90:
-                                    should_open = True
-                                    side = "SHORT"
-                                    confidence = min(99, short_score)
-
-                                already_open = (existing_pos is not None)
-
                                 # 🔍 Orderbook Depth & Futures Context Fetch
                                 ob_info = fetch_orderbook_depth(clean_display_sym)
                                 fut_info = fetch_futures_context(clean_display_sym)
 
-                                # Apply Orderbook & Futures Modifiers
-                                final_long_score = min(99, max(0, long_score + ob_info["obModifier"] + fut_info["futModifier"]))
-                                final_short_score = min(99, max(0, short_score - ob_info["obModifier"] - fut_info["futModifier"]))
+                                ob_mod = max(-3, min(3, ob_info.get("obModifier", 0)))
+                                fut_mod = max(-3, min(3, fut_info.get("futModifier", 0)))
 
-                                # Hafta Sonu Düşük Hacim Filtresi (Cumartesi/Pazar Eşik 86, Hafta İçi 80)
+                                final_long_score = min(99, max(0, long_score + ob_mod + fut_mod))
+                                final_short_score = min(99, max(0, short_score - ob_mod - fut_mod))
+
                                 is_weekend = time.strftime("%w") in ["0", "6"]
-                                min_required_score = 86 if is_weekend else 80
+                                min_required_score = 92 if is_weekend else 88
 
                                 if final_long_score >= min_required_score:
                                     should_open = True
@@ -1432,6 +1570,15 @@ def background_bot_loop():
                                     should_open = True
                                     side = "SHORT"
                                     confidence = final_short_score
+
+                                # Strict Macro Trend Counter-Trend Shield
+                                if should_open:
+                                    if side == "LONG" and current_price < ema200 and not rsi_bull_div:
+                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (LONG) -> COUNTER_TREND_BLOCKED (Fiyat EMA200 altında)")
+                                        should_open = False
+                                    elif side == "SHORT" and current_price > ema200 and not rsi_bear_div:
+                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (SHORT) -> COUNTER_TREND_BLOCKED (Fiyat EMA200 üzerinde)")
+                                        should_open = False
 
                                 if should_open and confidence >= min_required_score:
                                     tp1, tp2, tp3, sl, so1, so2 = calc_tp_sl(current_price, side, supp, resis, atr, ind.get("adx", 22.0))
@@ -1558,12 +1705,21 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 "balance": state["balance"],
                 "positions": state["positions"],
                 "history": state["history"],
+                "grid_bots": state.get("grid_bots", []),
                 "auto_pilot": state["auto_pilot"],
                 "ticker_data": state["ticker_data"],
                 "ml_weights": ml_weights,
                 "telegram_enabled": telegram_config.get("enabled", False)
             }
             self.wfile.write(json.dumps(resp_data).encode('utf-8'))
+            return
+
+        if self.path == "/api/grid/active":
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"grid_bots": state.get("grid_bots", [])}).encode('utf-8'))
             return
 
         if self.path == "/":
@@ -1761,6 +1917,83 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"success": True, "auto_pilot": state["auto_pilot"]}).encode('utf-8'))
             return
 
+        elif self.path == "/api/grid/create":
+            sym = data.get("symbol", "BTC/USDT")
+            price = float(data.get("price", 60000))
+            supp = float(data.get("support", price * 0.96))
+            resis = float(data.get("resistance", price * 1.04))
+            
+            existing = next((g for g in state.get("grid_bots", []) if is_same_symbol(g["symbol"], sym)), None)
+            if existing:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "message": f"{sym} için zaten aktif bir Grid stratejisi var!"}).encode('utf-8'))
+                return
+
+            grid_params = calculate_grid_parameters(sym, price, supp, resis)
+            if state["balance"] >= grid_params["allocatedAmount"]:
+                state["balance"] -= grid_params["allocatedAmount"]
+                state.get("grid_bots", []).append(grid_params)
+                save_db()
+                
+                grid_msg = (
+                    f"🌐 *MANUEL AI GRID STRATEJİSİ BAŞLATILDI*\n"
+                    f"• Varlık: *{sym}*\n"
+                    f"• Giriş Fiyatı: `{format_price(price)}` \n"
+                    f"• Aralık: `{format_price(grid_params['lowerBound'])}` ↔ `{format_price(grid_params['upperBound'])}`\n"
+                    f"• Bakiye: `${grid_params['allocatedAmount']:,.2f} USDT`"
+                )
+                send_telegram_message(grid_msg)
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "grid": grid_params}).encode('utf-8'))
+                return
+            else:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "message": "Yetersiz bakiye!"}).encode('utf-8'))
+                return
+
+        elif self.path == "/api/grid/stop":
+            grid_id = data.get("id", "")
+            target_sym = data.get("symbol", "")
+            
+            grid_bots = state.get("grid_bots", [])
+            target_grid = None
+            if grid_id:
+                target_grid = next((g for g in grid_bots if g.get("id") == grid_id), None)
+            elif target_sym:
+                target_grid = next((g for g in grid_bots if is_same_symbol(g.get("symbol"), target_sym)), None)
+                
+            if target_grid:
+                return_amt = target_grid.get("allocatedAmount", 350.0) + target_grid.get("realizedPnl", 0.0)
+                state["balance"] += return_amt
+                state["grid_bots"] = [g for g in grid_bots if g.get("id") != target_grid.get("id")]
+                save_db()
+                
+                send_telegram_message(f"🌐 *AI GRID STRATEJİSİ DURDURULDU:* {target_grid['symbol']} Grid stratejisi kapatıldı. İade Bakiye: `${return_amt:,.2f} USDT`")
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "balance": state["balance"]}).encode('utf-8'))
+                return
+            else:
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "message": "Grid stratejisi bulunamadı!"}).encode('utf-8'))
+                return
+
         elif self.path == "/api/close-all":
             positions = state.get("positions", [])
             closed_cnt = len(positions)
@@ -1777,11 +2010,20 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 state.get("history", []).insert(0, hist_entry)
             
             state["positions"] = []
+
+            # Also stop active grid bots and return allocated funds
+            grid_bots = state.get("grid_bots", [])
+            for g in grid_bots:
+                ret_amt = g.get("allocatedAmount", 350.0) + g.get("realizedPnl", 0.0)
+                state["balance"] += ret_amt
+            state["grid_bots"] = []
+
             save_db()
             
             send_telegram_message(
-                f"🧹 *TÜM AÇIK POZİSYONLAR KAPATILDI (API)*\n\n"
+                f"🧹 *TÜM AÇIK POZİSYONLAR VE GRID STRATEJİLERİ KAPATILDI (API)*\n\n"
                 f"• Kapatılan İşlem Sayısı: `{closed_cnt}`\n"
+                f"• Kapatılan Grid Sayısı: `{len(grid_bots)}`\n"
                 f"• Güncel Bakiye: `${state['balance']:,.2f} USDT`"
             )
             
@@ -1796,6 +2038,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
             state["balance"] = 6000.0
             state["positions"] = []
             state["history"] = []
+            state["grid_bots"] = []
             signal_broadcast_cooldowns.clear()
             symbol_cooldowns.clear()
             global_last_signal_time = 0
@@ -1811,6 +2054,7 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 "🔄 *QUANTUM AI PORTFÖYÜ SIFIRLANDI!*\n\n"
                 "• Kullanılabilir Bakiye: `$6,000.00 USDT`\n"
                 "• Açık Pozisyonlar: `0`\n"
+                "• Aktif Grid Stratejileri: `0`\n"
                 "• Kapanan İşlem Geçmişi: `Temizlendi (0 PnL)`\n"
                 "• Otopilot Motoru: `Sıfırdan Başlatıldı` 🟢"
             )
