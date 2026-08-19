@@ -51,6 +51,7 @@ class AppController {
     this.renderTickerBar();
     this.runAIAnalysis();
     this.updatePortfolioUI();
+    await this.fetchBackendState();
 
     // Asynchronously fetch remaining symbols in background
     this.symbols.filter(s => s !== this.activeSymbol).forEach(sym => {
@@ -179,6 +180,7 @@ class AppController {
     });
     this.portfolio.updateMarkPrices(currentPricesMap);
     this.updatePortfolioUI();
+    await this.fetchBackendState();
   }
 
   bindEvents() {
@@ -296,6 +298,107 @@ class AppController {
         }
       });
     }
+
+    // Grid Strategy Button listener
+    const btnCreateGrid = document.getElementById('btnCreateGrid');
+    if (btnCreateGrid) {
+      btnCreateGrid.addEventListener('click', async () => {
+        const cleanSym = this.activeSymbol.replace('USDT', '/USDT');
+        const prices = this.priceHistories[this.activeSymbol];
+        const curPrice = (prices && prices.length > 0) ? prices[prices.length - 1] : 60000;
+        
+        try {
+          const res = await fetch('/api/grid/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              symbol: cleanSym,
+              price: curPrice,
+              support: curPrice * 0.96,
+              resistance: curPrice * 1.04
+            })
+          });
+          const result = await res.json();
+          if (result.success) {
+            this.logTerminalMessage(`[AI GRID STRATEJİSİ BAŞLATILDI] ${cleanSym} için Spot/Futures Grid stratejisi etkinleşti.`);
+            this.fetchBackendState();
+          } else {
+            alert(result.message || 'Grid oluşturulamadı.');
+          }
+        } catch (e) {
+          alert('Sunucuya bağlanılamadı.');
+        }
+      });
+    }
+  }
+
+  async fetchBackendState() {
+    try {
+      const res = await fetch('/api/state');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.grid_bots) {
+          this.renderGridTable(data.grid_bots);
+        }
+        if (data.balance) {
+          this.portfolio.balance = data.balance;
+        }
+      }
+    } catch (e) {}
+  }
+
+  renderGridTable(gridBots) {
+    const gridTbody = document.getElementById('gridTbody');
+    const gridCountElem = document.getElementById('gridCount');
+    if (gridCountElem) gridCountElem.textContent = gridBots ? gridBots.length : 0;
+    if (!gridTbody) return;
+
+    if (!gridBots || gridBots.length === 0) {
+      gridTbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align: center; color: var(--text-dim); padding: 12px;">
+            Aktif AI Grid stratejisi bulunmuyor.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    gridTbody.innerHTML = '';
+    gridBots.forEach(g => {
+      const isWin = g.realizedPnl >= 0;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${g.symbol}</strong></td>
+        <td>${formatPrice(g.lowerBound)} - ${formatPrice(g.upperBound)}</td>
+        <td>${g.completedStepsCount || 0} / ${g.gridCount || 6}</td>
+        <td>$${(g.allocatedAmount || 350).toFixed(2)}</td>
+        <td style="color: ${isWin ? 'var(--color-bullish)' : 'var(--color-bearish)'}; font-weight: 700;">
+          ${isWin ? '+' : ''}$${(g.realizedPnl || 0).toFixed(2)}
+        </td>
+        <td><button class="btn-close-pos btn-stop-grid" data-id="${g.id}" style="background: rgba(255,23,68,0.2); border-color: rgba(255,23,68,0.5); color: #ff1744;">Durdur</button></td>
+      `;
+      gridTbody.appendChild(tr);
+    });
+
+    gridTbody.querySelectorAll('.btn-stop-grid').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.target.dataset.id;
+        try {
+          const res = await fetch('/api/grid/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+          });
+          const result = await res.json();
+          if (result.success) {
+            this.logTerminalMessage(`[AI GRID DURDURULDU] Grid stratejisi kapatıldı.`);
+            this.fetchBackendState();
+            this.updatePortfolioUI();
+          }
+        } catch (e) {}
+      });
+    });
   }
 
   renderTickerBar() {
