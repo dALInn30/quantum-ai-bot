@@ -1,0 +1,184 @@
+{
+  "timestamp": "2026-08-20 14:41:59",
+  "summary": {
+    "win_rate": 46.25,
+    "profit_factor": 1.27,
+    "average_r": 0.036,
+    "expectancy": 0.036,
+    "max_drawdown_r": 26.05,
+    "trade_count": 467,
+    "net_return_r": 16.88
+  },
+  "breakdowns": {
+    "by_symbol": {
+      "BTC/USDT": {
+        "trades": 241,
+        "win_rate": 51.0,
+        "net_r": 7.1,
+        "expectancy_r": 0.029
+      },
+      "ETH/USDT": {
+        "trades": 226,
+        "win_rate": 41.2,
+        "net_r": 9.78,
+        "expectancy_r": 0.043
+      }
+    },
+    "by_direction": {
+      "SHORT": {
+        "trades": 285,
+        "win_rate": 42.5,
+        "net_r": -21.49,
+        "expectancy_r": -0.075
+      },
+      "LONG": {
+        "trades": 182,
+        "win_rate": 52.2,
+        "net_r": 38.37,
+        "expectancy_r": 0.211
+      }
+    },
+    "by_score_bucket": {
+      "90+": {
+        "trades": 236,
+        "win_rate": 39.4,
+        "net_r": -11.97,
+        "expectancy_r": -0.051
+      },
+      "80-85": {
+        "trades": 91,
+        "win_rate": 50.5,
+        "net_r": 9.94,
+        "expectancy_r": 0.109
+      },
+      "75-80": {
+        "trades": 93,
+        "win_rate": 51.6,
+        "net_r": 10.32,
+        "expectancy_r": 0.111
+      },
+      "85-90": {
+        "trades": 47,
+        "win_rate": 61.7,
+        "net_r": 8.59,
+        "expectancy_r": 0.183
+      }
+    },
+    "by_regime": {
+      "BEARISH": {
+        "trades": 230,
+        "win_rate": 37.4,
+        "net_r": -26.42,
+        "expectancy_r": -0.115
+      },
+      "SIDEWAYS": {
+        "trades": 56,
+        "win_rate": 64.3,
+        "net_r": 5.03,
+        "expectancy_r": 0.09
+      },
+      "BULLISH": {
+        "trades": 181,
+        "win_rate": 51.9,
+        "net_r": 38.27,
+        "expectancy_r": 0.211
+      }
+    },
+    "by_stop_type": {
+      "STRUCTURE": {
+        "trades": 467,
+        "win_rate": 46.3,
+        "net_r": 16.88,
+        "expectancy_r": 0.036
+      }
+    },
+    "by_session_hour": {
+      "12:00-16:00": {
+        "trades": 97,
+        "win_rate": 57.7,
+        "net_r": 31.38,
+        "expectancy_r": 0.324
+      },
+      "16:00-20:00": {
+        "trades": 91,
+        "win_rate": 37.4,
+        "net_r": 4.18,
+        "expectancy_r": 0.046
+      },
+      "20:00-24:00": {
+        "trades": 72,
+        "win_rate": 23.6,
+        "net_r": -13.03,
+        "expectancy_r": -0.181
+      },
+      "00:00-04:00": {
+        "trades": 60,
+        "win_rate": 53.3,
+        "net_r": -4.58,
+        "expectancy_r": -0.076
+      },
+      "04:00-08:00": {
+        "trades": 81,
+        "win_rate": 42.0,
+        "net_r": -8.06,
+        "expectancy_r": -0.1
+      },
+      "08:00-12:00": {
+        "trades": 66,
+        "win_rate": 65.2,
+        "net_r": 6.99,
+        "expectancy_r": 0.106
+      }
+    },
+    "by_day": {
+      "Mon": {
+        "trades": 88,
+        "win_rate": 52.3,
+        "net_r": -0.14,
+        "expectancy_r": -0.002
+      },
+      "Tue": {
+        "trades": 112,
+        "win_rate": 36.6,
+        "net_r": -9.86,
+        "expectancy_r": -0.088
+      },
+      "Wed": {
+        "trades": 105,
+        "win_rate": 65.7,
+        "net_r": 44.26,
+        "expectancy_r": 0.422
+      },
+      "Thu": {
+        "trades": 69,
+        "win_rate": 31.9,
+        "net_r": -10.25,
+        "expectancy_r": -0.149
+      },
+      "Fri": {
+        "trades": 67,
+        "win_rate": 50.7,
+        "net_r": -0.63,
+        "expectancy_r": -0.009
+      },
+      "Sat": {
+        "trades": 4,
+        "win_rate": 0.0,
+        "net_r": -0.54,
+        "expectancy_r": -0.135
+      },
+      "Sun": {
+        "trades": 22,
+        "win_rate": 18.2,
+        "net_r": -5.96,
+        "expectancy_r": -0.271
+      }
+    }
+  },
+  "trade_execution_insights": {
+    "tp1_break_even_rate": 4.3,
+    "quick_stop_rate": 0.0,
+    "avg_mae_pct": 0.47,
+    "avg_mfe_pct": 0.82
+  }
+}

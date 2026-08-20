@@ -8,6 +8,7 @@ import time
 import os
 import sys
 import io
+import precision_engine
 HAS_MATPLOTLIB = False
 try:
     import matplotlib
@@ -650,6 +651,32 @@ def get_fear_and_greed_index():
     except Exception:
         return 50, "Neutral"
 
+def fetch_klines_for_symbol(symbol, interval="15m", limit=50):
+    if not symbol:
+        symbol = "BTCUSDT"
+    clean_sym = symbol.upper().replace("/", "").replace("-", "").strip()
+    if not clean_sym.endswith("USDT") and not clean_sym.endswith("BUSD"):
+        clean_sym += "USDT"
+    
+    urls = [
+        f"https://data-api.binance.vision/api/v3/klines?symbol={clean_sym}&interval={interval}&limit={limit}",
+        f"https://api.binance.com/api/v3/klines?symbol={clean_sym}&interval={interval}&limit={limit}"
+    ]
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if isinstance(data, list) and len(data) > 0:
+                    return clean_sym, data
+        except Exception:
+            continue
+    
+    tick_price = state.get("ticker_data", {}).get(clean_sym, {}).get("price")
+    if tick_price:
+        return clean_sym, [tick_price]
+    return clean_sym, None
+
 def set_telegram_commands():
     if not telegram_config.get("enabled") or not telegram_config.get("bot_token"):
         return
@@ -657,6 +684,7 @@ def set_telegram_commands():
         token = telegram_config["bot_token"].strip()
         url = f"https://api.telegram.org/bot{token}/setMyCommands"
         commands = [
+            {"command": "analiz", "description": "📷 Çizimli HD teknik analiz ve canlı fiyat grafiği"},
             {"command": "grafik", "description": "📷 Çizimli HD teknik analiz, kanal ve formasyon grafiği"},
             {"command": "pozisyonlar", "description": "📊 Açık pozisyonlar ve anlık PnL"},
             {"command": "gecmis", "description": "📜 Son 3 gün içinde kapanmış işlem geçmişi"},
@@ -683,64 +711,56 @@ def handle_telegram_command(cmd_text, chat_id):
         telegram_config["chat_id"] = str(chat_id)
         save_telegram_config()
     
-    if "grafik" in cmd or "chart" in cmd or "analiz grafiği" in cmd or cmd in ["cmd_chart"]:
+    if "grafik" in cmd or "chart" in cmd or "analiz" in cmd or cmd in ["cmd_chart", "cmd_analiz"]:
         parts = cmd_text.strip().split()
-        target_sym = "BTCUSDT"
+        target_sym = None
         if len(parts) > 1:
             raw_sym = parts[1].upper().replace("/", "").replace("-", "")
-            if not raw_sym.endswith("USDT"):
+            if not raw_sym.endswith("USDT") and not raw_sym.endswith("BUSD"):
                 raw_sym += "USDT"
-            if raw_sym in state.get("symbols", []):
-                target_sym = raw_sym
+            target_sym = raw_sym
+        else:
+            if state.get("positions"):
+                target_sym = state["positions"][0].get("symbol")
+            elif state.get("grid_bots"):
+                target_sym = state["grid_bots"][0].get("symbol")
+            else:
+                target_sym = "BTCUSDT"
 
-        klines_raw = None
-        prices = []
-        try:
-            url = f"https://api.binance.com/api/v3/klines?symbol={target_sym}&interval=15m&limit=50"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                klines_raw = json.loads(resp.read().decode('utf-8'))
-                prices = [float(k[4]) for k in klines_raw]
-        except Exception as ex:
-            print("Binance klines fetch error:", ex)
-            if state.get("klines_data", {}).get(target_sym):
-                prices = state.get("klines_data", {}).get(target_sym, [])
-
-        if not prices:
+        clean_sym, klines_raw = fetch_klines_for_symbol(target_sym, interval="15m", limit=50)
+        if not klines_raw:
             send_telegram_message(f"❌ *{target_sym}* için fiyat verisi alınamadı.", target_chat_id=chat_id)
             return
 
-        ind = calculate_python_indicators(klines_raw) if klines_raw else None
+        prices = [float(k[4]) for k in klines_raw] if isinstance(klines_raw[0], list) else klines_raw
+        ind = calculate_python_indicators(klines_raw) if isinstance(klines_raw[0], list) else None
         
-        grid_info = None
-        for g in state.get("grid_bots", []):
-            if g.get("symbol") == target_sym:
-                grid_info = g
-                break
+        grid_info = next((g for g in state.get("grid_bots", []) if is_same_symbol(g.get("symbol"), clean_sym)), None)
+        pos_info = next((p for p in state.get("positions", []) if is_same_symbol(p.get("symbol"), clean_sym)), None)
 
         curr_p = prices[-1]
         sig = {
-            'entryPrice': curr_p,
-            'sl': round(curr_p * 0.978, 2),
-            'tp1': round(curr_p * 1.022, 2),
-            'tp2': round(curr_p * 1.045, 2)
+            'entryPrice': pos_info.get("entryPrice", curr_p) if pos_info else curr_p,
+            'sl': pos_info.get("sl", round(curr_p * 0.978, 2)) if pos_info else round(curr_p * 0.978, 2),
+            'tp1': pos_info.get("tp1", round(curr_p * 1.022, 2)) if pos_info else round(curr_p * 1.022, 2),
+            'tp2': pos_info.get("tp2", round(curr_p * 1.045, 2)) if pos_info else round(curr_p * 1.045, 2)
         }
 
         btc_ctx = analyze_btc_market_context()
-        photo = generate_analysis_chart_image(target_sym, klines_raw if klines_raw else prices, ind, sig, grid_info, btc_context=btc_ctx)
+        photo = generate_analysis_chart_image(clean_sym, klines_raw if isinstance(klines_raw[0], list) else prices, ind, sig, grid_info, btc_context=btc_ctx)
         if photo:
             p_name = ind.get('patterns', {}).get('name', 'Kanal İçi') if ind else 'Kanal İçi'
             sup = ind.get('support', curr_p * 0.98) if ind else curr_p * 0.98
             res = ind.get('resistance', curr_p * 1.02) if ind else curr_p * 1.02
             
             cap = (
-                f"📷 *QUANTUM AI HD TEKNİK ANALİZ GRAFİĞİ ({target_sym})*\n\n"
-                f"💵 Canlı Fiyat: `${curr_p:,.2f} USDT`\n"
+                f"📷 *QUANTUM AI HD TEKNİK ANALİZ GRAFİĞİ ({clean_sym})*\n\n"
+                f"💵 Canlı Fiyat: `{format_price(curr_p)}`\n"
                 f"🌐 BTC Piyasa Analizi: *{btc_ctx.get('status_text', 'Aktif')}*\n"
                 f"📐 Trend Kanalı & Destek/Direnç Çizimleri Eklendi ✅\n"
                 f"🧩 Formasyon Yapısı: *{p_name}*\n"
-                f"🎯 Destek: `${sup:,.2f}` | Direnç: `${res:,.2f}`\n"
-                f"🎯 TP1: `${sig['tp1']:,.2f}` | 🛑 SL: `${sig['sl']:,.2f}`"
+                f"🎯 Destek: `{format_price(sup)}` | Direnç: `{format_price(res)}` \n"
+                f"🎯 TP1: `{format_price(sig['tp1'])}` | 🛑 SL: `{format_price(sig['sl'])}`"
             )
             send_telegram_photo(photo, caption=cap, target_chat_id=chat_id)
         else:
@@ -868,7 +888,21 @@ def handle_telegram_command(cmd_text, chat_id):
                 f"  └ Gerçekleşen Net PnL: {pnl_icon} *${pnl:+.2f} USDT*"
             )
             lines.append("---------------------------------")
-        send_telegram_message("\n".join(lines), target_chat_id=chat_id)
+        
+        text_summary = "\n".join(lines)
+        
+        top_grid = grid_bots[0]
+        grid_sym = top_grid.get("symbol", "BTC/USDT")
+        clean_sym, klines_raw = fetch_klines_for_symbol(grid_sym)
+        if klines_raw:
+            ind = calculate_python_indicators(klines_raw) if isinstance(klines_raw[0], list) else None
+            btc_ctx = analyze_btc_market_context()
+            photo = generate_analysis_chart_image(clean_sym, klines_raw, indicators=ind, grid_info=top_grid, btc_context=btc_ctx)
+            if photo:
+                send_telegram_photo(photo, caption=text_summary, target_chat_id=chat_id)
+                return
+        
+        send_telegram_message(text_summary, target_chat_id=chat_id)
 
     elif "haftalık" in cmd or "haftalik" in cmd or cmd in ["/haftalik", "/haftalık"]:
         history = state.get("history", [])
@@ -1080,6 +1114,8 @@ def telegram_listener_loop():
                                     handle_telegram_command("grid", cb_chat_id)
                                 elif cb_data == "cmd_status":
                                     handle_telegram_command("durum", cb_chat_id)
+                                elif cb_data in ["cmd_chart", "cmd_analiz"]:
+                                    handle_telegram_command("analiz", cb_chat_id)
         except urllib.error.HTTPError as e:
             if not token_error_logged:
                 if e.code == 401:
@@ -2034,8 +2070,19 @@ def background_bot_loop():
                                             f"---------------------------------\n"
                                             f"✨ *Quantum AI Otopilot Otomatik Kademe Alım-Satımı Etkinleştirdi*"
                                         )
-                                        send_telegram_message(grid_msg)
-                                        print(f"🌐 VIP AI Grid Stratejisi Başlatıldı: {clean_display_sym}")
+                                        ind_info = {'support': supp, 'resistance': resis}
+                                        grid_photo = generate_analysis_chart_image(
+                                            clean_pair, 
+                                            k_data if 'k_data' in locals() and k_data else close_prices, 
+                                            indicators=ind_info, 
+                                            grid_info=grid_params, 
+                                            btc_context=btc_context
+                                        )
+                                        if grid_photo:
+                                            send_telegram_photo(grid_photo, caption=grid_msg)
+                                        else:
+                                            send_telegram_message(grid_msg)
+                                        print(f"🌐 VIP AI Grid Stratejisi Başlatıldı (Görsel Gönderildi): {clean_display_sym}")
 
                                 # 🛡️ FORMASYON BOZULMA & POZİSYON KORUMA KONTROLÜ (Skor >= 90 Eşiği)
                                 if existing_pos:
@@ -2090,131 +2137,115 @@ def background_bot_loop():
                                 final_short_score = min(99, max(0, short_score - ob_mod - fut_mod))
 
                                 is_weekend = time.strftime("%w") in ["0", "6"]
-                                min_required_score = 92 if is_weekend else 88
+                                 # --- PRECISION INTRADAY BOT ENGINE EVALUATION ---
+                                 prec_setup = precision_engine.detect_precision_setup(clean_display_sym, k_data, k_data_90d, ind, btc_context)
+                                 setup_type = prec_setup.get("setup_type", "NONE")
+                                 prec_side = prec_setup.get("side", "NONE")
 
-                                if final_long_score >= min_required_score:
-                                    should_open = True
-                                    side = "LONG"
-                                    confidence = final_long_score
-                                elif final_short_score >= min_required_score:
-                                    should_open = True
-                                    side = "SHORT"
-                                    confidence = final_short_score
+                                 if setup_type != "NONE" and prec_side != "NONE":
+                                     ob_info = fetch_orderbook_depth(clean_display_sym)
+                                     fut_info = fetch_futures_context(clean_display_sym)
+                                     
+                                     prec_score, score_comps = precision_engine.calculate_precision_quality_score(prec_setup, ind, k_data, k_data_90d, fut_info, ob_info)
+                                     prec_eligible, prec_reason = precision_engine.evaluate_precision_filters(prec_setup, score_comps, ind, k_data, k_data_90d)
+                                     
+                                     if prec_eligible:
+                                         should_open = True
+                                         side = prec_side
+                                         confidence = prec_score
+                                     else:
+                                         print(f"⛔ PRECISION FILTER REJECTED: {clean_display_sym} ({prec_side}) -> {prec_reason}")
+                                         should_open = False
+                                 else:
+                                     # Record Shadow Baseline Signal if legacy baseline would have triggered
+                                     if (final_long_score >= 75 or final_short_score >= 75):
+                                         shadow_entry = {
+                                             "type": "SHADOW_BASELINE_SIGNAL",
+                                             "symbol": clean_display_sym,
+                                             "reason": prec_setup.get("reason", "NO_VALID_SETUP"),
+                                             "timestamp": time.strftime("%H:%M:%S")
+                                         }
+                                         state.get("history", []).insert(0, shadow_entry)
+                                     should_open = False
 
-                                # 🌐 BTC Market Trend & Channel Filter Check
-                                if should_open:
-                                    if side == "LONG" and not btc_context.get("allow_long", True):
-                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (LONG) -> BTC_FILTER_BLOCKED ({btc_context.get('reason')})")
-                                        should_open = False
-                                    elif side == "SHORT" and not btc_context.get("allow_short", True):
-                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (SHORT) -> BTC_FILTER_BLOCKED ({btc_context.get('reason')})")
-                                        should_open = False
-                                    elif side == "LONG" and current_price < ema200 and not rsi_bull_div:
-                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (LONG) -> COUNTER_TREND_BLOCKED (Fiyat EMA200 altında)")
-                                        should_open = False
-                                    elif side == "SHORT" and current_price > ema200 and not rsi_bear_div:
-                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} (SHORT) -> COUNTER_TREND_BLOCKED (Fiyat EMA200 üzerinde)")
-                                        should_open = False
+                                 if should_open and confidence >= 82:
+                                     tp1, tp2, tp3, sl, so1, so2 = calc_tp_sl(current_price, side, supp, resis, atr, ind.get("adx", 22.0))
+                                     suggested_pos_size = calc_dynamic_position_size(current_price, atr, state["balance"])
 
-                                if should_open and confidence >= min_required_score:
-                                    tp1, tp2, tp3, sl, so1, so2 = calc_tp_sl(current_price, side, supp, resis, atr, ind.get("adx", 22.0))
-                                    suggested_pos_size = calc_dynamic_position_size(current_price, atr, state["balance"])
-                                    pattern_name = "İkili Dip (W-Formasyonu)" if side == "LONG" else "İkili Tepe (M-Formasyonu)"
+                                     has_open_pos = any(is_same_symbol(p["symbol"], clean_display_sym) for p in state.get("positions", []))
+                                     is_already_open = (existing_pos is not None) or has_open_pos
+                                     last_bc_time = signal_broadcast_cooldowns.get(clean_display_sym, 0)
+                                     cb_until = state.get("circuit_breaker_until", 0)
+                                     circuit_active = (time.time() < cb_until)
+                                     
+                                     SYMBOL_COOLDOWN_SEC = 3600
+                                     GLOBAL_COOLDOWN_SEC = 600
 
-                                    # 🛡️ HARD ELIGIBILITY REJECTION CHECK (Min 1:1.5 R:R & Target Obstacle)
-                                    eligible, rej_reason = check_hard_eligibility(final_long_score, final_short_score, current_price, supp, resis, tp1, sl)
-                                    if not eligible:
-                                        print(f"⛔ İŞLEM REDDEDİLDİ: {clean_display_sym} ({side}) -> {rej_reason}")
-                                        should_open = False
-                                        continue
+                                     if state["auto_pilot"] and not is_already_open and not circuit_active and state["balance"] >= 300 and (now - last_bc_time) > SYMBOL_COOLDOWN_SEC and (now - global_last_signal_time) > GLOBAL_COOLDOWN_SEC:
+                                         amount = round(min(state["balance"], suggested_pos_size), 2)
+                                         size = round(amount / current_price, 4)
 
-                                    # 🤖 Unified VIP Signal Broadcast & Auto-Pilot Trade Engine (100% Synced)
-                                    has_open_pos = any(is_same_symbol(p["symbol"], clean_display_sym) for p in state.get("positions", []))
-                                    is_already_open = (existing_pos is not None) or has_open_pos
-                                    last_bc_time = signal_broadcast_cooldowns.get(clean_display_sym, 0)
-                                    cb_until = state.get("circuit_breaker_until", 0)
-                                    circuit_active = (time.time() < cb_until)
-                                    
-                                    SYMBOL_COOLDOWN_SEC = 3600 # 1 saat sembol bekleme süresi
-                                    GLOBAL_COOLDOWN_SEC = 600  # 10 dakika global sinyal spam koruması
+                                         pos = {
+                                             "id": "AUTO-" + str(int(time.time()))[-6:],
+                                             "symbol": clean_display_sym,
+                                             "side": side,
+                                             "size": size,
+                                             "entryPrice": current_price,
+                                             "markPrice": current_price,
+                                             "tp1": tp1,
+                                             "tp2": tp2,
+                                             "tp3": tp3,
+                                             "sl": sl,
+                                             "so1": so1,
+                                             "so2": so2,
+                                             "pnl": 0.0,
+                                             "pnlPercent": 0.0,
+                                             "patternName": setup_type,
+                                             "timestamp": time.strftime("%H:%M:%S"),
+                                             "openTimeSec": time.time()
+                                         }
 
-                                    if state["auto_pilot"] and not is_already_open and not circuit_active and state["balance"] >= 300 and (now - last_bc_time) > SYMBOL_COOLDOWN_SEC and (now - global_last_signal_time) > GLOBAL_COOLDOWN_SEC:
-                                        amount = round(min(state["balance"], suggested_pos_size), 2)
-                                        size = round(amount / current_price, 4)
+                                         state["balance"] -= amount
+                                         state["positions"].append(pos)
+                                         signal_broadcast_cooldowns[clean_display_sym] = now
+                                         symbol_cooldowns[clean_display_sym] = now
+                                         global_last_signal_time = now
+                                         save_db()
 
-                                        pos = {
-                                            "id": "AUTO-" + str(int(time.time()))[-6:],
-                                            "symbol": clean_display_sym,
-                                            "side": side,
-                                            "size": size,
-                                            "entryPrice": current_price,
-                                            "markPrice": current_price,
-                                            "tp1": tp1,
-                                            "tp2": tp2,
-                                            "tp3": tp3,
-                                            "sl": sl,
-                                            "so1": so1,
-                                            "so2": so2,
-                                            "pnl": 0.0,
-                                            "pnlPercent": 0.0,
-                                            "patternName": pattern_name,
-                                            "timestamp": time.strftime("%H:%M:%S"),
-                                            "openTimeSec": time.time()
-                                        }
+                                         clean_pair = clean_display_sym.replace('/', '')
+                                         chart_link = f"https://www.tradingview.com/chart/?symbol=BINANCE:{clean_pair}"
 
-                                        state["balance"] -= amount
-                                        state["positions"].append(pos)
-                                        signal_broadcast_cooldowns[clean_display_sym] = now
-                                        symbol_cooldowns[clean_display_sym] = now
-                                        global_last_signal_time = now
-                                        save_db()
+                                         signal_msg = (
+                                             f"🎯 *PRECISION TRADE* (%{confidence} Kalite Skoru)\n"
+                                             f"---------------------------------\n"
+                                             f"🎯 *Varlık:* *{clean_display_sym}* ({side} {'📈' if side == 'LONG' else '📉'})\n"
+                                             f"📐 *Setup Tipi:* *{setup_type}*\n"
+                                             f"📍 *Giriş Seviyesi:* `{format_price(current_price)}` \n"
+                                             f"🛑 *Stop Loss (SL):* `{format_price(sl)}` \n"
+                                             f"🎯 *Kar Al 1 (TP1):* `{format_price(tp1)}` \n"
+                                             f"🎯 *Kar Al 2 (TP2):* `{format_price(tp2)}` \n"
+                                             f"🚀 *Kar Al 3 (TP3):* `{format_price(tp3)}` \n"
+                                             f"---------------------------------\n"
+                                             f"📊 *KALİTE ANALİZ GEREKÇESİ:*\n"
+                                             f"└ 📈 *Setup Kalitesi:* `{score_comps.get('setup_quality', 0)}/25`\n"
+                                             f"└ 🌊 *HTF Uyum:* `{score_comps.get('htf_alignment', 0)}/20`\n"
+                                             f"└ 🎯 *Piyasa Yapısı:* `{score_comps.get('market_structure', 0)}/15`\n"
+                                             f"└ 🐋 *Giriş Konumu:* `{score_comps.get('entry_location', 0)}/15`\n"
+                                             f"└ 🌐 *BTC Durumu:* *{btc_context.get('reason', 'Onaylandı')}*\n"
+                                             f"---------------------------------\n"
+                                             f"📈 [Canlı TradingView Grafiği ve Setup İncele]({chart_link})\n"
+                                             f"✨ *Precision Paper Otopilot Pozisyonu Başarıyla Açıldı*"
+                                         )
+                                         ind_info = {'support': supp, 'resistance': resis, 'patterns': {'name': setup_type}}
+                                         sig_info = {'entryPrice': current_price, 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'tp3': tp3}
+                                         photo_bytes = generate_analysis_chart_image(clean_pair, k_data if 'k_data' in locals() and k_data else close_prices, ind_info, sig_info, btc_context=btc_context)
+                                         if photo_bytes:
+                                             send_telegram_photo(photo_bytes, caption=signal_msg)
+                                         else:
+                                             send_telegram_message(signal_msg)
+                                         print(f"📡 Precision Trade Sinyali ve Otopilot Pozisyonu Açıldı: {clean_display_sym} ({side}) - Setup: {setup_type}")
+                                         break
 
-                                        reason_trend = f"EMA200 (`{format_price(ema200)}`) üzerinde Güçlü Boğa Trendi" if side == "LONG" else f"EMA200 (`{format_price(ema200)}`) altında Düşen Ayı Trendi"
-                                        reason_macd = "MACD Histogramı pozitif ivmeyle boğa kesişimi verdi" if side == "LONG" else "MACD Histogramı negatif ivmeyle ayı kesişimi verdi"
-                                        reason_rsi = f"RSI (`{rsi:.1f}`) aşırı satım dip seviyesinden tepki alımı" if side == "LONG" else f"RSI (`{rsi:.1f}`) tepe seviyesinden kâr satışı tepkisi"
-                                        reason_smc = f"Boğa Order Block (`{format_price(supp)}`) Kurumsal Alım Bölgesi" if side == "LONG" else f"Ayı Order Block (`{format_price(resis)}`) Kurumsal Satış Bölgesi"
-
-                                        clean_pair = clean_display_sym.replace('/', '')
-                                        chart_link = f"https://www.tradingview.com/chart/?symbol=BINANCE:{clean_pair}"
-
-                                        signal_msg = (
-                                            f"💎 *VIP TRADER SİNYAL & OTOPİLOT İŞLEMİ* (%{confidence} Başarı Olasılığı)\n"
-                                            f"---------------------------------\n"
-                                            f"🎯 *Varlık:* *{clean_display_sym}* ({side} {'📈' if side == 'LONG' else '📉'})\n"
-                                            f"📍 *Giriş Seviyesi:* `{format_price(current_price)}` \n"
-                                            f"🎯 *Kar Al 1 (TP1):* `{format_price(tp1)}` (Kademeli Kâr - %50 Kapat)\n"
-                                            f"🎯 *Kar Al 2 (TP2):* `{format_price(tp2)}` (Ana Hedef)\n"
-                                            f"🚀 *Kar Al 3 (TP3):* `{format_price(tp3)}` (Trend Uzaması)\n"
-                                            f"🛡️ *DCA Kademeli Alım #1:* `{format_price(so1)}` (-%2 Kademesi)\n"
-                                            f"🛡️ *DCA Kademeli Alım #2:* `{format_price(so2)}` (-%4 Kademesi)\n"
-                                            f"🛑 *Stop Loss (SL):* `{format_price(sl)}` (Volatilite Korumalı)\n"
-                                            f"---------------------------------\n"
-                                            f"🌐 *BTC Piyasa Uyum:* *{btc_context.get('status_text', 'Aktif')}*\n"
-                                            f"---------------------------------\n"
-                                            f"📐 *QUANTFURY UYGULAMA EMİR BİLGİSİ:*\n"
-                                            f"└ 💵 *Açılan Pozisyon Büyüklüğü:* `${amount:,.2f} USDT` (Otopilot Aktif 🚀)\n"
-                                            f"└ ⚖️ *Önerilen Kaldıraç:* `1x - 5x` (Maksimum Risk: %2.0)\n"
-                                            f"---------------------------------\n"
-                                            f"📊 *KURUMSAL TEKNİK & TEMEL ANALİZ GEREKÇESİ:*\n"
-                                            f"└ 📈 *Makro Trend:* {reason_trend}\n"
-                                            f"└ 🌊 *Momentum:* {reason_macd}\n"
-                                            f"└ 🎯 *RSI & Seviye:* {reason_rsi}\n"
-                                            f"└ 🐋 *Smart Money (SMC):* {reason_smc}\n"
-                                            f"└ 🔍 *Formasyon Yapısı:* *{pattern_name}*\n"
-                                            f"└ 🌐 *BTC Trend & Kanal Filtresi:* *{btc_context.get('reason', 'Onaylandı')}*\n"
-                                            f"---------------------------------\n"
-                                            f"📈 [Canlı TradingView Grafiği ve Formasyonu İncele]({chart_link})\n"
-                                            f"✨ *VIP Otopilot Pozisyonu Başarıyla Açıldı ve Taramaya Alındı*"
-                                        )
-                                        ind_info = {'support': supp, 'resistance': resis, 'patterns': {'name': pattern_name}}
-                                        sig_info = {'entryPrice': current_price, 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'tp3': tp3}
-                                        photo_bytes = generate_analysis_chart_image(clean_pair, k_data if 'k_data' in locals() and k_data else close_prices, ind_info, sig_info, btc_context=btc_context)
-                                        if photo_bytes:
-                                            send_telegram_photo(photo_bytes, caption=signal_msg)
-                                        else:
-                                            send_telegram_message(signal_msg)
-                                        print(f"📡 VIP Trader Sinyal ve Otopilot İşlemi Açıldı (Görsel Gönderildi): {clean_display_sym} ({side})")
-                                        break
                     except Exception as e_k:
                         print("Auto-pilot kline scan error:", e_k)
 
@@ -2455,14 +2486,33 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
 
                 # Telegram Alert for Manual Trade
                 msg = (
-                    f"🚀 *YENİ POZİSYON AÇILDI!*\n"
-                    f"• Varlık: *{pos['symbol']}* ({pos['side']})\n"
-                    f"• Giriş Fiyatı: `${pos['entryPrice']:,.2f}`\n"
-                    f"• Hedef (TP1): `${pos['tp1']:,.2f}`\n"
-                    f"• Stop-Loss (SL): `${pos['sl']:,.2f}`\n"
-                    f"• Güncel Bakiye: `${state['balance']:,.2f} USDT`"
+                    f"🚀 *YENİ MANUEL POZİSYON AÇILDI!*\n"
+                    f"---------------------------------\n"
+                    f"🎯 *Varlık:* *{pos['symbol']}* ({pos['side']} {'📈' if pos['side'] == 'LONG' else '📉'})\n"
+                    f"📍 *Giriş Fiyatı:* `{format_price(pos['entryPrice'])}` \n"
+                    f"🎯 *Hedef (TP1):* `{format_price(pos['tp1'])}` \n"
+                    f"🛑 *Stop-Loss (SL):* `{format_price(pos['sl'])}` \n"
+                    f"💵 *Pozisyon Büyüklüğü:* `${amount:,.2f} USDT` \n"
+                    f"💰 *Güncel Kalan Bakiye:* `${state['balance']:,.2f} USDT`\n"
+                    f"---------------------------------\n"
+                    f"✨ *Quantum AI Manuel Pozisyon Taramaya Alındı*"
                 )
-                send_telegram_message(msg)
+                
+                clean_sym_name, klines_raw = fetch_klines_for_symbol(pos['symbol'])
+                ind_info = {'support': pos['entryPrice'] * 0.98, 'resistance': pos['entryPrice'] * 1.02}
+                sig_info = {'entryPrice': pos['entryPrice'], 'sl': pos['sl'], 'tp1': pos['tp1']}
+                btc_ctx = analyze_btc_market_context()
+                trade_photo = generate_analysis_chart_image(
+                    clean_sym_name, 
+                    klines_raw if klines_raw else [pos['entryPrice']], 
+                    indicators=ind_info, 
+                    signal=sig_info, 
+                    btc_context=btc_ctx
+                )
+                if trade_photo:
+                    send_telegram_photo(trade_photo, caption=msg)
+                else:
+                    send_telegram_message(msg)
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
@@ -2504,12 +2554,32 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 
                 grid_msg = (
                     f"🌐 *MANUEL AI GRID STRATEJİSİ BAŞLATILDI*\n"
-                    f"• Varlık: *{sym}*\n"
-                    f"• Giriş Fiyatı: `{format_price(price)}` \n"
-                    f"• Aralık: `{format_price(grid_params['lowerBound'])}` ↔ `{format_price(grid_params['upperBound'])}`\n"
-                    f"• Bakiye: `${grid_params['allocatedAmount']:,.2f} USDT`"
+                    f"---------------------------------\n"
+                    f"🎯 *Varlık:* *{sym}*\n"
+                    f"📍 *Giriş Fiyatı:* `{format_price(price)}` \n"
+                    f"📉 *Grid Tabanı:* `{format_price(grid_params['lowerBound'])}` \n"
+                    f"📈 *Grid Tavanı:* `{format_price(grid_params['upperBound'])}` \n"
+                    f"📐 *Kademe Sayısı:* `{grid_params['gridCount']} Kademe` | Kâr/Kademe: `%{grid_params['profitPerGridPct']:.2f}`\n"
+                    f"🛡️ *Grid Stop-Loss:* `{format_price(grid_params['stopLoss'])}` \n"
+                    f"💵 *Ayrılan Bakiye:* `${grid_params['allocatedAmount']:,.2f} USDT`\n"
+                    f"---------------------------------\n"
+                    f"✨ *Manuel Grid Stratejisi Başarıyla Etkinleştirildi*"
                 )
-                send_telegram_message(grid_msg)
+                
+                clean_sym_name, klines_raw = fetch_klines_for_symbol(sym)
+                ind_info = {'support': supp, 'resistance': resis}
+                btc_ctx = analyze_btc_market_context()
+                grid_photo = generate_analysis_chart_image(
+                    clean_sym_name, 
+                    klines_raw if klines_raw else [price], 
+                    indicators=ind_info, 
+                    grid_info=grid_params, 
+                    btc_context=btc_ctx
+                )
+                if grid_photo:
+                    send_telegram_photo(grid_photo, caption=grid_msg)
+                else:
+                    send_telegram_message(grid_msg)
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
