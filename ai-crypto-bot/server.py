@@ -1805,7 +1805,16 @@ def background_bot_loop():
                     state["history"].insert(0, hist_entry)
                     save_db()
                     update_self_learning_engine(hist_entry)
-                    send_telegram_message(f"⏰ *ZAMAN SINIRI POZİSYON KAPANIŞI ({close_reason}):* {pos['symbol']} işlemi PnL: *${pos['pnl']:+.2f}* ile kapatıldı.")
+                    msg_dur = f"⏰ *ZAMAN SINIRI POZİSYON KAPANIŞI ({close_reason}):* {pos['symbol']} işlemi PnL: *${pos['pnl']:+.2f}* ile kapatıldı."
+                    clean_sym_name, klines_raw = fetch_klines_for_symbol(pos["symbol"])
+                    ind_info = calculate_python_indicators(klines_raw) if klines_raw and isinstance(klines_raw[0], list) else None
+                    sig_info = {'entryPrice': pos.get("entryPrice"), 'sl': pos.get("sl"), 'tp1': pos.get("tp1")}
+                    btc_ctx = analyze_btc_market_context()
+                    trade_photo = generate_analysis_chart_image(clean_sym_name, klines_raw, indicators=ind_info, signal=sig_info, btc_context=btc_ctx) if klines_raw else None
+                    if trade_photo:
+                        send_telegram_photo(trade_photo, caption=msg_dur)
+                    else:
+                        send_telegram_message(msg_dur)
                     continue
                 
                 # 🛡️ Gelişmiş Dinamik Trailing Stop & Kâr Kilitleme Motoru
@@ -1879,7 +1888,15 @@ def background_bot_loop():
                             f"---------------------------------\n"
                             f"⚠️ *Lütfen harici borsadaki Stop Loss seviyenizi `{format_price(pos['sl'])}` olarak revize ediniz.*"
                         )
-                        send_telegram_message(sl_msg)
+                        clean_sym_name, klines_raw = fetch_klines_for_symbol(pos["symbol"])
+                        ind_info = calculate_python_indicators(klines_raw) if klines_raw and isinstance(klines_raw[0], list) else None
+                        sig_info = {'entryPrice': pos.get("entryPrice"), 'sl': pos.get("sl"), 'tp1': pos.get("tp1")}
+                        btc_ctx = analyze_btc_market_context()
+                        sl_photo = generate_analysis_chart_image(clean_sym_name, klines_raw, indicators=ind_info, signal=sig_info, btc_context=btc_ctx) if klines_raw else None
+                        if sl_photo:
+                            send_telegram_photo(sl_photo, caption=sl_msg)
+                        else:
+                            send_telegram_message(sl_msg)
                         print(f"📡 Telegram Stop Güncelleme Bildirimi Gönderildi: {pos['symbol']} -> SL: {pos['sl']}")
 
                 open_ts = pos.get("openTimeSec", now_sec)
@@ -1927,7 +1944,15 @@ def background_bot_loop():
                         f"---------------------------------\n"
                         f"✨ *Quantum AI Dinamik Pozisyon Yönetimi*"
                     )
-                    send_telegram_message(msg)
+                    clean_sym_name, klines_raw = fetch_klines_for_symbol(pos["symbol"])
+                    ind_info = calculate_python_indicators(klines_raw) if klines_raw and isinstance(klines_raw[0], list) else None
+                    sig_info = {'entryPrice': pos.get("entryPrice"), 'sl': pos.get("sl"), 'tp1': pos.get("tp1")}
+                    btc_ctx = analyze_btc_market_context()
+                    close_photo = generate_analysis_chart_image(clean_sym_name, klines_raw, indicators=ind_info, signal=sig_info, btc_context=btc_ctx) if klines_raw else None
+                    if close_photo:
+                        send_telegram_photo(close_photo, caption=msg)
+                    else:
+                        send_telegram_message(msg)
 
                     # 🧠 Trigger Self-Learning Machine Learning Engine
                     update_self_learning_engine(hist_entry)
@@ -1960,13 +1985,21 @@ def background_bot_loop():
                     }
                     state["history"].insert(0, hist_entry)
                     save_db()
-                    send_telegram_message(
+                    msg_grid_stop = (
                         f"🛑 *AI GRID STRATEJİSİ STOP OLDU!*\n"
                         f"---------------------------------\n"
                         f"• Varlık: *{grid['symbol']}*\n"
                         f"• Kapanış Fiyatı: `{format_price(m_price)}` (Stop Loss: `{format_price(grid['stopLoss'])}`)\n"
                         f"• Kar/Zarar: *${pnl_loss:+.2f} USDT*\n"
                     )
+                    clean_sym_name, klines_raw = fetch_klines_for_symbol(grid["symbol"])
+                    ind_info = calculate_python_indicators(klines_raw) if klines_raw and isinstance(klines_raw[0], list) else None
+                    btc_ctx = analyze_btc_market_context()
+                    grid_stop_photo = generate_analysis_chart_image(clean_sym_name, klines_raw, indicators=ind_info, grid_info=grid, btc_context=btc_ctx) if klines_raw else None
+                    if grid_stop_photo:
+                        send_telegram_photo(grid_stop_photo, caption=msg_grid_stop)
+                    else:
+                        send_telegram_message(msg_grid_stop)
                     continue
 
                 # Check Grid Step Execution (Buy Low / Sell High)
@@ -2173,7 +2206,15 @@ def background_bot_loop():
                                             f"---------------------------------\n"
                                             f"🛡️ *Quantum AI Otomatik Risk Yönetim Sistemi*"
                                         )
-                                        send_telegram_message(msg_invalid)
+                                        clean_sym_name, klines_raw = fetch_klines_for_symbol(clean_display_sym)
+                                        ind_info = calculate_python_indicators(klines_raw) if klines_raw and isinstance(klines_raw[0], list) else None
+                                        sig_info = {'entryPrice': existing_pos.get("entryPrice"), 'sl': existing_pos.get("sl"), 'tp1': existing_pos.get("tp1")}
+                                        btc_ctx = analyze_btc_market_context()
+                                        inv_photo = generate_analysis_chart_image(clean_sym_name, klines_raw, indicators=ind_info, signal=sig_info, btc_context=btc_ctx) if klines_raw else None
+                                        if inv_photo:
+                                            send_telegram_photo(inv_photo, caption=msg_invalid)
+                                        else:
+                                            send_telegram_message(msg_invalid)
                                         print(f"🛑 Formasyon Bozuldu, Pozisyon Kapatıldı: {clean_display_sym} ({existing_pos['side']})")
                                         existing_pos = None
 
@@ -2511,7 +2552,15 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                         f"• Kar/Zarar: *${pnl:+.2f}*\n"
                         f"• Yeni Yön: *{target_side}*\n"
                     )
-                    send_telegram_message(msg_close)
+                    clean_sym_name, klines_raw = fetch_klines_for_symbol(target_sym)
+                    ind_info = {'support': entry_price * 0.98, 'resistance': entry_price * 1.02}
+                    sig_info = {'entryPrice': entry_price, 'sl': existing_pos.get("sl", entry_price*0.98), 'tp1': existing_pos.get("tp1", entry_price*1.02)}
+                    btc_ctx = analyze_btc_market_context()
+                    close_photo = generate_analysis_chart_image(clean_sym_name, klines_raw if klines_raw else [entry_price], indicators=ind_info, signal=sig_info, btc_context=btc_ctx)
+                    if close_photo:
+                        send_telegram_photo(close_photo, caption=msg_close)
+                    else:
+                        send_telegram_message(msg_close)
 
             if state["balance"] >= amount and entry_price > 0:
                 size = round(amount / entry_price, 4)
@@ -2663,7 +2712,15 @@ class CustomHandler(http.server.SimpleHTTPRequestHandler):
                 state["grid_bots"] = [g for g in grid_bots if g.get("id") != target_grid.get("id")]
                 save_db()
                 
-                send_telegram_message(f"🌐 *AI GRID STRATEJİSİ DURDURULDU:* {target_grid['symbol']} Grid stratejisi kapatıldı. İade Bakiye: `${return_amt:,.2f} USDT`")
+                msg_stop_grid = f"🌐 *AI GRID STRATEJİSİ DURDURULDU:* {target_grid['symbol']} Grid stratejisi kapatıldı. İade Bakiye: `${return_amt:,.2f} USDT`"
+                clean_sym_name, klines_raw = fetch_klines_for_symbol(target_grid["symbol"])
+                ind_info = calculate_python_indicators(klines_raw) if klines_raw and isinstance(klines_raw[0], list) else None
+                btc_ctx = analyze_btc_market_context()
+                stop_grid_photo = generate_analysis_chart_image(clean_sym_name, klines_raw, indicators=ind_info, grid_info=target_grid, btc_context=btc_ctx) if klines_raw else None
+                if stop_grid_photo:
+                    send_telegram_photo(stop_grid_photo, caption=msg_stop_grid)
+                else:
+                    send_telegram_message(msg_stop_grid)
 
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
