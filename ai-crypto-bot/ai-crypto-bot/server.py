@@ -864,45 +864,96 @@ def handle_telegram_command(cmd_text, chat_id):
         send_telegram_message(msg, target_chat_id=chat_id)
 
     elif "grid" in cmd or cmd in ["/grid", "grid", "ai grid stratejileri"]:
+        parts = cmd_text.strip().split()
+        requested_sym = None
+        if len(parts) > 1:
+            raw_sym = parts[1].upper().replace("/", "").replace("-", "")
+            if raw_sym not in ["STRATEJİLERİ", "STRATEJILERI", "ANALİZ", "ANALIZ", "BOT"]:
+                if not raw_sym.endswith("USDT") and not raw_sym.endswith("BUSD"):
+                    raw_sym += "USDT"
+                requested_sym = raw_sym
+
         grid_bots = state.get("grid_bots", [])
-        if not grid_bots:
-            send_telegram_message("ℹ️ *Şu anda aktif AI Grid Stratejisi bulunmamaktadır.*\n\nBot, yatay konsolidasyon piyasalarında (ADX < 25) otomatik Spot/Futures Grid stratejisi başlatmaktadır.", target_chat_id=chat_id)
+
+        # Case 1: Active grid bots exist and no specific symbol requested
+        if grid_bots and not requested_sym:
+            lines = [f"🌐 *AKTİF YAZILIM GRID STRATEJİLERİ ({len(grid_bots)})*", "---------------------------------"]
+            for g in grid_bots:
+                sym = g.get("symbol", "N/A")
+                allocated = g.get("allocatedAmount", 0)
+                low = format_price(g.get("lowerBound", 0))
+                high = format_price(g.get("upperBound", 0))
+                pnl = g.get("realizedPnl", 0)
+                grid_cnt = g.get("gridCount", 6)
+                profit_step = g.get("profitPerGridPct", 1.2)
+
+                pnl_icon = "🟢" if pnl >= 0 else "🔴"
+                lines.append(
+                    f"• *{sym}* (AI Grid Bot)\n"
+                    f"  └ Aralık: `{low}` ↔ `{high}`\n"
+                    f"  └ Kademe Sayısı: `{grid_cnt}` | Kâr/Kademe: `%{profit_step:.2f}`\n"
+                    f"  └ Ayrılan Bakiye: `${allocated:,.2f} USDT`\n"
+                    f"  └ Gerçekleşen Net PnL: {pnl_icon} *${pnl:+.2f} USDT*"
+                )
+                lines.append("---------------------------------")
+
+            text_summary = "\n".join(lines)
+
+            top_grid = grid_bots[0]
+            grid_sym = top_grid.get("symbol", "BTC/USDT")
+            clean_sym, klines_raw = fetch_klines_for_symbol(grid_sym)
+            if klines_raw:
+                ind = calculate_python_indicators(klines_raw) if isinstance(klines_raw[0], list) else None
+                btc_ctx = analyze_btc_market_context()
+                photo = generate_analysis_chart_image(clean_sym, klines_raw, indicators=ind, grid_info=top_grid, btc_context=btc_ctx)
+                if photo:
+                    send_telegram_photo(photo, caption=text_summary, target_chat_id=chat_id)
+                    return
+
+            send_telegram_message(text_summary, target_chat_id=chat_id)
             return
-        
-        lines = [f"🌐 *AKTİF YAZILIM GRID STRATEJİLERİ ({len(grid_bots)})*", "---------------------------------"]
-        for g in grid_bots:
-            sym = g.get("symbol", "N/A")
-            allocated = g.get("allocatedAmount", 0)
-            low = format_price(g.get("lowerBound", 0))
-            high = format_price(g.get("upperBound", 0))
-            pnl = g.get("realizedPnl", 0)
-            grid_cnt = g.get("gridCount", 6)
-            profit_step = g.get("profitPerGridPct", 1.2)
-            
-            pnl_icon = "🟢" if pnl >= 0 else "🔴"
-            lines.append(
-                f"• *{sym}* (AI Grid Bot)\n"
-                f"  └ Aralık: `{low}` ↔ `{high}`\n"
-                f"  └ Kademe Sayısı: `{grid_cnt}` | Kâr/Kademe: `%{profit_step:.2f}`\n"
-                f"  └ Ayrılan Bakiye: `${allocated:,.2f} USDT`\n"
-                f"  └ Gerçekleşen Net PnL: {pnl_icon} *${pnl:+.2f} USDT*"
-            )
-            lines.append("---------------------------------")
-        
-        text_summary = "\n".join(lines)
-        
-        top_grid = grid_bots[0]
-        grid_sym = top_grid.get("symbol", "BTC/USDT")
-        clean_sym, klines_raw = fetch_klines_for_symbol(grid_sym)
-        if klines_raw:
-            ind = calculate_python_indicators(klines_raw) if isinstance(klines_raw[0], list) else None
-            btc_ctx = analyze_btc_market_context()
-            photo = generate_analysis_chart_image(clean_sym, klines_raw, indicators=ind, grid_info=top_grid, btc_context=btc_ctx)
-            if photo:
-                send_telegram_photo(photo, caption=text_summary, target_chat_id=chat_id)
-                return
-        
-        send_telegram_message(text_summary, target_chat_id=chat_id)
+
+        # Case 2: No active grid bots or user specifically requested a coin for Grid analysis
+        target_sym = requested_sym or (grid_bots[0].get("symbol") if grid_bots else None)
+        if not target_sym:
+            if state.get("positions"):
+                target_sym = state["positions"][0].get("symbol")
+            else:
+                target_sym = "BTCUSDT"
+
+        clean_sym, klines_raw = fetch_klines_for_symbol(target_sym, interval="15m", limit=50)
+        if not klines_raw:
+            send_telegram_message(f"❌ *{target_sym}* için grid analizi verisi alınamadı.", target_chat_id=chat_id)
+            return
+
+        prices = [float(k[4]) for k in klines_raw] if isinstance(klines_raw[0], list) else klines_raw
+        curr_p = prices[-1]
+        ind = calculate_python_indicators(klines_raw) if isinstance(klines_raw[0], list) else None
+        supp = ind.get("support", curr_p * 0.98) if ind else curr_p * 0.98
+        resis = ind.get("resistance", curr_p * 1.02) if ind else curr_p * 1.02
+        atr = ind.get("atr", curr_p * 0.01) if ind else curr_p * 0.01
+
+        grid_params = calculate_grid_parameters(clean_sym, curr_p, supp, resis, atr)
+        btc_ctx = analyze_btc_market_context()
+
+        grid_summary = (
+            f"🌐 *QUANTUM AI GRID STRATEJİ & KADEMELER ANALİZİ ({clean_sym})*\n"
+            f"---------------------------------\n"
+            f"📍 *Canlı Fiyat:* `{format_price(curr_p)}` \n"
+            f"📉 *Grid Tabanı (Support):* `{format_price(grid_params['lowerBound'])}` \n"
+            f"📈 *Grid Tavanı (Resistance):* `{format_price(grid_params['upperBound'])}` \n"
+            f"📐 *Kademe Sayısı:* `{grid_params['gridCount']} Kademe` | Kâr/Kademe: `%{grid_params['profitPerGridPct']:.2f}`\n"
+            f"🛡️ *Grid Stop-Loss:* `{format_price(grid_params['stopLoss'])}` (Kanal Altı)\n"
+            f"---------------------------------\n"
+            f"📊 *Piyasa Rejimi:* *{ind.get('regimeMode', 'Yatay / Konsolidasyon') if ind else 'Aktif'}*\n"
+            f"✨ *HD Dark-Themed Teknik Grid Grafiği Aşağıda Çizilmiştir*"
+        )
+
+        photo = generate_analysis_chart_image(clean_sym, klines_raw if isinstance(klines_raw[0], list) else prices, indicators=ind, grid_info=grid_params, btc_context=btc_ctx)
+        if photo:
+            send_telegram_photo(photo, caption=grid_summary, target_chat_id=chat_id)
+        else:
+            send_telegram_message(grid_summary, target_chat_id=chat_id)
 
     elif "haftalık" in cmd or "haftalik" in cmd or cmd in ["/haftalik", "/haftalık"]:
         history = state.get("history", [])
@@ -2072,8 +2123,8 @@ def background_bot_loop():
                                         )
                                         ind_info = {'support': supp, 'resistance': resis}
                                         grid_photo = generate_analysis_chart_image(
-                                            clean_pair, 
-                                            k_data if 'k_data' in locals() and k_data else close_prices, 
+                                            clean_display_sym.replace('/', ''), 
+                                            k_data if 'k_data' in locals() and k_data else [current_price], 
                                             indicators=ind_info, 
                                             grid_info=grid_params, 
                                             btc_context=btc_context
@@ -2137,38 +2188,38 @@ def background_bot_loop():
                                 final_short_score = min(99, max(0, short_score - ob_mod - fut_mod))
 
                                 is_weekend = time.strftime("%w") in ["0", "6"]
-                                 # --- PRECISION INTRADAY BOT ENGINE EVALUATION ---
-                                 prec_setup = precision_engine.detect_precision_setup(clean_display_sym, k_data, k_data_90d, ind, btc_context)
-                                 setup_type = prec_setup.get("setup_type", "NONE")
-                                 prec_side = prec_setup.get("side", "NONE")
+                                # --- PRECISION INTRADAY BOT ENGINE EVALUATION ---
+                                prec_setup = precision_engine.detect_precision_setup(clean_display_sym, k_data, k_data_90d, ind, btc_context)
+                                setup_type = prec_setup.get("setup_type", "NONE")
+                                prec_side = prec_setup.get("side", "NONE")
 
-                                 if setup_type != "NONE" and prec_side != "NONE":
-                                     ob_info = fetch_orderbook_depth(clean_display_sym)
-                                     fut_info = fetch_futures_context(clean_display_sym)
-                                     
-                                     prec_score, score_comps = precision_engine.calculate_precision_quality_score(prec_setup, ind, k_data, k_data_90d, fut_info, ob_info)
-                                     prec_eligible, prec_reason = precision_engine.evaluate_precision_filters(prec_setup, score_comps, ind, k_data, k_data_90d)
-                                     
-                                     if prec_eligible:
-                                         should_open = True
-                                         side = prec_side
-                                         confidence = prec_score
-                                     else:
-                                         print(f"⛔ PRECISION FILTER REJECTED: {clean_display_sym} ({prec_side}) -> {prec_reason}")
-                                         should_open = False
-                                 else:
-                                     # Record Shadow Baseline Signal if legacy baseline would have triggered
-                                     if (final_long_score >= 75 or final_short_score >= 75):
-                                         shadow_entry = {
-                                             "type": "SHADOW_BASELINE_SIGNAL",
-                                             "symbol": clean_display_sym,
-                                             "reason": prec_setup.get("reason", "NO_VALID_SETUP"),
-                                             "timestamp": time.strftime("%H:%M:%S")
-                                         }
-                                         state.get("history", []).insert(0, shadow_entry)
-                                     should_open = False
+                                if setup_type != "NONE" and prec_side != "NONE":
+                                    ob_info = fetch_orderbook_depth(clean_display_sym)
+                                    fut_info = fetch_futures_context(clean_display_sym)
+                                    
+                                    prec_score, score_comps = precision_engine.calculate_precision_quality_score(prec_setup, ind, k_data, k_data_90d, fut_info, ob_info)
+                                    prec_eligible, prec_reason = precision_engine.evaluate_precision_filters(prec_setup, score_comps, ind, k_data, k_data_90d)
+                                    
+                                    if prec_eligible:
+                                        should_open = True
+                                        side = prec_side
+                                        confidence = prec_score
+                                    else:
+                                        print(f"⛔ PRECISION FILTER REJECTED: {clean_display_sym} ({prec_side}) -> {prec_reason}")
+                                        should_open = False
+                                else:
+                                    # Record Shadow Baseline Signal if legacy baseline would have triggered
+                                    if (final_long_score >= 75 or final_short_score >= 75):
+                                        shadow_entry = {
+                                            "type": "SHADOW_BASELINE_SIGNAL",
+                                            "symbol": clean_display_sym,
+                                            "reason": prec_setup.get("reason", "NO_VALID_SETUP"),
+                                            "timestamp": time.strftime("%H:%M:%S")
+                                        }
+                                        state.get("history", []).insert(0, shadow_entry)
+                                    should_open = False
 
-                                 if should_open and confidence >= 82:
+                                if should_open and confidence >= 82:
                                      tp1, tp2, tp3, sl, so1, so2 = calc_tp_sl(current_price, side, supp, resis, atr, ind.get("adx", 22.0))
                                      suggested_pos_size = calc_dynamic_position_size(current_price, atr, state["balance"])
 
