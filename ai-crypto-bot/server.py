@@ -2330,9 +2330,13 @@ def background_bot_loop():
                                          )
                                          ind_info = {'support': supp, 'resistance': resis, 'patterns': {'name': setup_type}}
                                          sig_info = {'entryPrice': current_price, 'sl': sl, 'tp1': tp1, 'tp2': tp2, 'tp3': tp3}
-                                         photo_bytes = generate_analysis_chart_image(clean_pair, k_data if 'k_data' in locals() and k_data else close_prices, ind_info, sig_info, btc_context=btc_context)
+                                         clean_sym_name, klines_fresh = fetch_klines_for_symbol(clean_display_sym)
+                                         chart_data = klines_fresh if klines_fresh else (k_data if 'k_data' in locals() and k_data else [current_price])
+                                         photo_bytes = generate_analysis_chart_image(clean_sym_name, chart_data, ind_info, sig_info, btc_context=btc_context)
                                          if photo_bytes:
-                                             send_telegram_photo(photo_bytes, caption=signal_msg)
+                                             ok_p, err_p = send_telegram_photo(photo_bytes, caption=signal_msg)
+                                             if not ok_p:
+                                                 send_telegram_message(signal_msg)
                                          else:
                                              send_telegram_message(signal_msg)
                                          print(f"📡 Precision Trade Sinyali ve Otopilot Pozisyonu Açıldı: {clean_display_sym} ({side}) - Setup: {setup_type}")
