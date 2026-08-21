@@ -756,35 +756,60 @@ def set_telegram_commands():
     except Exception as e:
         print("setMyCommands error:", e)
 
+def normalize_tok(s):
+    if not s:
+        return ""
+    s = str(s).upper()
+    s = s.replace("Ğ", "G").replace("İ", "I").replace("İ", "I").replace("Ö", "O").replace("Ü", "U").replace("Ş", "S").replace("Ç", "C")
+    return s
+
+def extract_target_symbol_from_cmd(cmd_text, state_obj):
+    ignore_tokens = {
+        "📈", "📊", "📷", "🚀", "🌐", "🤖", "🧹", "📜", "💰", "⚡",
+        "GRAFIK", "/GRAFIK", "GRAFIGI", "GRAFIGINI",
+        "CHART", "/CHART", "ANALIZ", "/ANALIZ", "ANALIZI",
+        "CMD_CHART", "CMD_ANALIZ", "HD", "CANLI", "TEKNIK", "RESIM",
+        "FOTO", "GORSEL", "GOSTER", "VERI"
+    }
+    
+    parts = cmd_text.strip().split()
+    candidate_sym = None
+
+    for p in parts:
+        p_clean = normalize_tok(p.replace("/", "").replace("-", "").strip())
+        if not p_clean or p_clean in ignore_tokens:
+            continue
+            
+        p_alpha = "".join(c for c in p_clean if c.isalnum() and c.isascii())
+        if not p_alpha or p_alpha in ignore_tokens:
+            continue
+            
+        sym_cand = p_alpha
+        if not sym_cand.endswith("USDT") and not sym_cand.endswith("BUSD"):
+            sym_cand += "USDT"
+            
+        if len(p_alpha) >= 2 and len(p_alpha) <= 12:
+            candidate_sym = sym_cand
+            break
+
+    if candidate_sym:
+        return candidate_sym
+
+    if state_obj.get("positions"):
+        return state_obj["positions"][0].get("symbol", "BTCUSDT")
+    elif state_obj.get("grid_bots"):
+        return state_obj["grid_bots"][0].get("symbol", "BTCUSDT")
+    else:
+        return "BTCUSDT"
+
 def handle_telegram_command(cmd_text, chat_id):
-    cmd = cmd_text.lower().strip()
+    cmd = normalize_tok(cmd_text.strip())
     if chat_id and not telegram_config.get("chat_id"):
         telegram_config["chat_id"] = str(chat_id)
         save_telegram_config()
     
-    if "grafik" in cmd or "chart" in cmd or "analiz" in cmd or cmd in ["cmd_chart", "cmd_analiz"]:
-        parts = cmd_text.strip().split()
-        target_sym = None
-        
-        skip_words = ["📈", "📊", "GRAFİK", "GRAFIK", "/GRAFIK", "CHART", "/CHART", "ANALİZ", "ANALIZ", "/ANALIZ", "CMD_CHART", "CMD_ANALIZ"]
-        candidate_sym = None
-        for p in parts:
-            p_clean = p.upper().replace("/", "").replace("-", "").strip()
-            if p_clean and p_clean not in skip_words:
-                candidate_sym = p_clean
-                break
-        
-        if candidate_sym:
-            if not candidate_sym.endswith("USDT") and not candidate_sym.endswith("BUSD"):
-                candidate_sym += "USDT"
-            target_sym = candidate_sym
-        else:
-            if state.get("positions"):
-                target_sym = state["positions"][0].get("symbol")
-            elif state.get("grid_bots"):
-                target_sym = state["grid_bots"][0].get("symbol")
-            else:
-                target_sym = "BTCUSDT"
+    if "GRAFIK" in cmd or "CHART" in cmd or "ANALIZ" in cmd or cmd in ["CMD_CHART", "CMD_ANALIZ"]:
+        target_sym = extract_target_symbol_from_cmd(cmd_text, state)
 
         clean_sym, klines_raw = fetch_klines_for_symbol(target_sym, interval="15m", limit=50)
         if not klines_raw:

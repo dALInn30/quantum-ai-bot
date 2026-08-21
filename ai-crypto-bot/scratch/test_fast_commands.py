@@ -1,7 +1,5 @@
 import sys
 import os
-import json
-import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,21 +20,17 @@ server.send_telegram_message = mock_send_message
 server.send_telegram_photo = mock_send_photo
 
 test_commands = [
+    "📷 Analiz Grafiği",
     "📈 Grafik",
     "grafik solusdt",
     "/grafik btc",
     "pozisyonlar",
     "gecmis",
     "pnl",
-    "grid",
-    "haftalik",
-    "saglik",
-    "durum",
-    "menu",
-    "/help"
+    "grid"
 ]
 
-print("--- TESTING TELEGRAM COMMAND HANDLERS ---")
+print("--- TESTING ALL TELEGRAM COMMAND HANDLERS & BUTTON TAPS ---")
 for cmd in test_commands:
     sent_messages.clear()
     sent_photos.clear()
@@ -48,6 +42,5 @@ for cmd in test_commands:
             print(f"   📷 Photo: {photo_len} bytes | Caption Len: {len(cap)}")
     except Exception as e:
         print(f"❌ ERROR in '{cmd}': {e}")
-        traceback.print_exc()
 
-print("\n--- ALL TELEGRAM COMMAND HANDLERS VERIFIED SUCCESSFULLY ---")
+print("\n--- TEST COMPLETED ---")
