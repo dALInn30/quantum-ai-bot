@@ -542,7 +542,6 @@ def generate_analysis_chart_image(symbol, data, indicators=None, signal=None, gr
                 ema50 = calc_ema_list(closes, 50)
                 ax1.plot(x_indices, ema50, color='#ab47bc', linestyle='-', linewidth=1.3, label='EMA 50', alpha=0.85, zorder=5)
 
-<<<<<<< HEAD
             if n >= 25:
                 ema200 = calc_ema_list(closes, 200)
                 ax1.plot(x_indices, ema200, color='#00e5ff', linestyle='-', linewidth=1.3, label='EMA 200 (Ana Trend)', alpha=0.8, zorder=5)
@@ -554,23 +553,6 @@ def generate_analysis_chart_image(symbol, data, indicators=None, signal=None, gr
                 h2_idx = max(range(half, n), key=lambda i: highs[i])
                 l1_idx = min(range(0, half), key=lambda i: lows[i])
                 l2_idx = min(range(half, n), key=lambda i: lows[i])
-=======
-        # 10. Title Banner & BTC Watermark Box
-        btc_txt = btc_context.get("status_text", "BTC Analizi Aktif") if isinstance(btc_context, dict) else "BTC Trend Kanali Taraniyor"
-        for emoji_char in ["🔴 ", "🟢 ", "🟡 ", "⚡ ", "📊 "]:
-            btc_txt = btc_txt.replace(emoji_char, "")
-        ax1.set_title(f'QUANTUM AI HD TEKNIK ANALIZ GRAFIGI: {symbol} (${curr_p:,.2f})', color='#ffffff', fontsize=11.5, fontweight='bold', pad=12)
-        ax1.text(0.015, 0.95, f'[BTC PIYASA DURUMU: {btc_txt}]', transform=ax1.transAxes, color='#00f2fe', fontsize=8.5, fontweight='bold', va='top', bbox=dict(boxstyle='round,pad=0.4', facecolor='#1e222d', edgecolor='#00b0ff', alpha=0.85))
-
-        # Formatting & Axes
-        ax1.grid(True, color='#ffffff', alpha=0.07, linestyle='-')
-        ax2.grid(True, color='#ffffff', alpha=0.07, linestyle='-')
-        ax1.tick_params(colors='#888888', labelsize=8)
-        ax2.tick_params(colors='#888888', labelsize=8)
-        ax2.set_ylabel('Hacim', color='#888888', fontsize=8)
-        ax1.legend(loc='upper right', facecolor='#131722', edgecolor='#222836', labelcolor='#cccccc', fontsize=8)
-        ax2.legend(loc='upper left', facecolor='#131722', edgecolor='#222836', labelcolor='#cccccc', fontsize=7.5)
->>>>>>> origin/main
 
                 slope_h = (highs[h2_idx] - highs[h1_idx]) / (h2_idx - h1_idx or 1)
                 y_upper = [highs[h1_idx] + slope_h * (i - h1_idx) for i in x_indices]
