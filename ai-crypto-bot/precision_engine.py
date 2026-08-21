@@ -349,13 +349,20 @@ def calculate_precision_quality_score(setup_info, indicators, k_data_15m, k_data
     return final_score, score_components
 
 
-def evaluate_precision_filters(setup_info, score_components, indicators, k_data_15m, k_data_4h):
+def evaluate_precision_filters(setup_info, score_components, indicators, k_data_15m, k_data_4h, btc_context=None):
     setup_type = setup_info.get("setup_type", "NONE")
     side = setup_info.get("side", "NONE")
     final_score = score_components.get("final_score", 0)
 
     if setup_type == "NONE" or side == "NONE":
         return False, "NO_VALID_SETUP"
+
+    # BTC Sudden Shock Hazard Filter (Ani Dump / Ani Pump Check)
+    if btc_context and isinstance(btc_context, dict):
+        if side == "LONG" and not btc_context.get("allow_long", True):
+            return False, "BTC_SUDDEN_DUMP_HAZARD"
+        if side == "SHORT" and not btc_context.get("allow_short", True):
+            return False, "BTC_SUDDEN_PUMP_HAZARD"
 
     c_price = indicators["currentPrice"]
     atr = indicators["atr"]

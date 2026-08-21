@@ -1540,37 +1540,35 @@ def analyze_btc_market_context():
         slope_l = (lows_15m[l2_idx] - lows_15m[l1_idx]) / (l2_idx - l1_idx or 1)
         channel_slope_pct = ((slope_h + slope_l) / 2.0 / btc_price) * 100.0 * n
         
-        # Check Short-term Volatility / Dump Hazard (e.g. BTC dropped >1.8% in last 1 hour)
+        # Check Short-term Shock Volatility (Ani Dump & Ani Pump Hazards)
+        price_15m_ago = closes_15m[-2] if len(closes_15m) >= 2 else closes_15m[0]
         price_1h_ago = closes_15m[-5] if len(closes_15m) >= 5 else closes_15m[0]
-        drop_1h_pct = ((btc_price - price_1h_ago) / price_1h_ago) * 100.0
         
-        is_dumping = (drop_1h_pct <= -1.8) or (btc_price < ema200 * 0.985 and drop_1h_pct <= -1.0)
+        change_15m_pct = ((btc_price - price_15m_ago) / price_15m_ago) * 100.0
+        change_1h_pct = ((btc_price - price_1h_ago) / price_1h_ago) * 100.0
+
+        is_sudden_dump = (change_15m_pct <= -1.2) or (change_1h_pct <= -1.8) or (btc_price < ema200 * 0.985 and change_1h_pct <= -1.0)
+        is_sudden_pump = (change_15m_pct >= 1.2) or (change_1h_pct >= 1.8) or (btc_price > ema200 * 1.015 and change_1h_pct >= 1.0)
         
-        # Classify Market Trend Status
-        if is_dumping:
-            status = "DUMP_HAZARD"
-            status_text = f"🔴 BTC Sert Düşüş Riski (1s: %{drop_1h_pct:.2f})"
+        # Classify Market Status (Independent Altcoin Analysis with Shock Hazards)
+        if is_sudden_dump:
+            status = "SUDDEN_DUMP_HAZARD"
+            status_text = f"🔴 BTC Ani Dump Riski (1s: %{change_1h_pct:+.2f})"
             allow_long = False
             allow_short = True
-            reason = f"BTC son 1 saatte %{abs(drop_1h_pct):.2f} düştü! Altcoin LONG işlemleri riski sebebiyle donduruldu."
-        elif btc_price >= ema200 and ema20 >= ema50 and channel_slope_pct >= -0.5:
-            status = "BULLISH_CHANNEL"
-            status_text = f"🟢 BTC Yükselen Boğa Kanalı (${btc_price:,.2f})"
+            reason = f"BTC'de son 1 saatte %{abs(change_1h_pct):.2f} ani sert düşüş yaşandı! Altcoin LONG işlemleri riski sebebiyle donduruldu."
+        elif is_sudden_pump:
+            status = "SUDDEN_PUMP_HAZARD"
+            status_text = f"⚡ BTC Ani Pump Riski (1s: %{change_1h_pct:+.2f})"
             allow_long = True
             allow_short = False
-            reason = "BTC güçlü boğa kanalında ve EMA200 üzerinde. Trende aykırı SHORT işlemleri engellendi."
-        elif btc_price <= ema200 and ema20 <= ema50 and channel_slope_pct <= 0.5:
-            status = "BEARISH_CHANNEL"
-            status_text = f"🔴 BTC Düşen Ayı Kanalı (${btc_price:,.2f})"
-            allow_long = False
-            allow_short = True
-            reason = "BTC düşen ayı kanalında ve EMA200 altında. Riski yüksek LONG işlemleri engellendi."
+            reason = f"BTC'de son 1 saatte %{change_1h_pct:+.2f} ani sert yükseliş yaşandı! Altcoin SHORT işlemleri riski sebebiyle donduruldu."
         else:
-            status = "SIDEWAYS_ACCUMULATION"
-            status_text = f"🟡 BTC Yatay Akümülasyon Kanalı (${btc_price:,.2f})"
+            status = "STABLE_MARKET"
+            status_text = f"🟢 BTC Normal Seyir (${btc_price:,.2f})"
             allow_long = True
             allow_short = True
-            reason = "BTC yatay bantta hareket ediyor. Altcoin sinyalleri standart kurallarla taranıyor."
+            reason = "BTC normal seyrediyor. Tüm coinler kendi teknik formasyonu ile bağımsız taranıyor."
             
         return {
             "status": status,
@@ -1582,7 +1580,7 @@ def analyze_btc_market_context():
             "channel_slope_pct": round(channel_slope_pct, 2),
             "rsi": round(rsi, 1),
             "ema200": round(ema200, 2),
-            "drop_1h_pct": round(drop_1h_pct, 2)
+            "change_1h_pct": round(change_1h_pct, 2)
         }
     except Exception as e:
         print("⚠️ BTC Piyasası Analiz Hatası:", e)
@@ -2323,7 +2321,7 @@ def background_bot_loop():
                                     fut_info = fetch_futures_context(clean_display_sym)
                                     
                                     prec_score, score_comps = precision_engine.calculate_precision_quality_score(prec_setup, ind, k_data, k_data_90d, fut_info, ob_info)
-                                    prec_eligible, prec_reason = precision_engine.evaluate_precision_filters(prec_setup, score_comps, ind, k_data, k_data_90d)
+                                    prec_eligible, prec_reason = precision_engine.evaluate_precision_filters(prec_setup, score_comps, ind, k_data, k_data_90d, btc_context=btc_context)
                                     
                                     if prec_eligible:
                                         should_open = True
