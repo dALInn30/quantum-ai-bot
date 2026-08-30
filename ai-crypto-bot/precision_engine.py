@@ -14,10 +14,10 @@ ENABLE_BREAKOUT_RETEST = True
 ENABLE_LIQUIDITY_SWEEP_REVERSAL = True
 
 MIN_SCORE_NORMAL = 82
-MIN_SCORE_DOUBLE_RANGE = 88
+MIN_SCORE_DOUBLE_RANGE = 85
 MIN_SCORE_COUNTER_TREND = 90
 MIN_DIRECTION_DIFF = 12
-MIN_EFFECTIVE_RR = 1.7
+MIN_EFFECTIVE_RR = 1.4
 MIN_INDEPENDENT_CONFLUENCES = 4
 
 
@@ -377,11 +377,11 @@ def evaluate_precision_filters(setup_info, score_components, indicators, k_data_
     if setup_type == "TREND_PULLBACK":
         if side == "LONG":
             dist_from_supp = (c_price - supp)
-            if dist_from_supp > 1.5 * atr:
+            if dist_from_supp > 2.5 * atr:
                 return False, "ENTRY_EXTENDED"
         elif side == "SHORT":
             dist_from_resis = (resis - c_price)
-            if dist_from_resis > 1.5 * atr:
+            if dist_from_resis > 2.5 * atr:
                 return False, "ENTRY_EXTENDED"
 
     # 2. CANDLE EXTENSION FILTER
@@ -390,22 +390,28 @@ def evaluate_precision_filters(setup_info, score_components, indicators, k_data_
         c_open = float(last_c[1])
         c_close = float(last_c[4])
         body = abs(c_close - c_open)
-        if body > 1.8 * atr and setup_type != "BREAKOUT_RETEST":
+        if body > 2.2 * atr and setup_type != "BREAKOUT_RETEST":
             return False, "EXTENDED_ENTRY"
 
     # 3. TARGET BLOCKED FILTER
-    if side == "LONG":
-        dist_to_resis = (resis - c_price)
-        if dist_to_resis < 0.6 * atr:
-            return False, "TARGET_BLOCKED"
-    else:
-        dist_to_supp = (c_price - supp)
-        if dist_to_supp < 0.6 * atr:
-            return False, "TARGET_BLOCKED"
+    if setup_type != "BREAKOUT_RETEST":
+        if side == "LONG":
+            dist_to_resis = (resis - c_price)
+            if dist_to_resis < 0.5 * atr:
+                return False, "TARGET_BLOCKED"
+        else:
+            dist_to_supp = (c_price - supp)
+            if dist_to_supp < 0.5 * atr:
+                return False, "TARGET_BLOCKED"
 
     # 4. EFFECTIVE RR FILTER
-    tp1 = resis if side == "LONG" else supp
-    sl = supp * 0.985 if side == "LONG" else resis * 1.015
+    if setup_type == "BREAKOUT_RETEST":
+        tp1 = c_price + max(resis - supp, 2.5 * atr) if side == "LONG" else c_price - max(resis - supp, 2.5 * atr)
+        sl = resis * 0.990 if side == "LONG" else supp * 1.010
+    else:
+        tp1 = resis if side == "LONG" else supp
+        sl = supp * 0.985 if side == "LONG" else resis * 1.015
+
     risk_amt = abs(c_price - sl)
     reward_amt = abs(tp1 - c_price)
 
